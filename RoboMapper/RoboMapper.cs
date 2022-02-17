@@ -1,97 +1,87 @@
 ﻿using System;
+using System.CodeDom;
+using System.CodeDom.Compiler;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Text;
 
 namespace RoboMapper
 {
     public static class RoboMapper
     {
+        private static readonly Dictionary<Type, object> _mappables = new Dictionary<Type, object>();
+            
+            
         private static readonly Dictionary<string, Dictionary<Type, WrappedObject>> Links = new Dictionary<string, Dictionary<Type, WrappedObject>>();
         private static readonly Dictionary<Type, List<string>> TypeToGroup = new Dictionary<Type, List<string>>();
 
         static RoboMapper()
         {
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+             
+            var dictionary = new Dictionary<string, List<Type>>();
 
             foreach (var assembly in assemblies)
             {
-                var mps = assembly.GetTypes();
-
-                foreach (var type in mps)
+                var mps = assembly.GetTypes().Where(e => e.GetCustomAttribute<Mappable>() != null);
+                
+                foreach (var @type in mps)
                 {
-                    if (type.GetCustomAttribute<Mappable>() != null)
+                    var mappables = @type.GetCustomAttribute<Mappable>();
+                    foreach (var mappable in mappables.UniqueName)
                     {
-                        RegisterType(type);
+                        if (!dictionary.ContainsKey(mappable))
+                        {
+                            dictionary.Add(mappable, new List<Type>());
+                        }    
+                        dictionary[mappable].Add(@type);
                     }
                 }
             }
-        }
+            var tasks = new List<Task<string>>();
 
-        internal static void RegisterType(Type type)
-        {
-            if (TypeToGroup.ContainsKey(type)) return;
-            var mappableType = type;
-            var mappable = mappableType.GetCustomAttributes<Mappable>();
-            if (!mappable.Any()) throw new Exception("This is not a mappable");
-            //found a mappable
-            //var instance = Activator.CreateInstance(type);
-            var instance = new WrappedObject(Activator.CreateInstance(mappableType));
-
-
-            foreach (var field in mappableType.GetMembers().Where(e => e is PropertyInfo))
+            foreach (var entry in dictionary)
             {
-                var mapIndex = field.GetCustomAttributes<MapIndex>();
-                if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {mappableType.Name} has no index!");
-
-                var propertyInfo = field as PropertyInfo;
-                if (mapIndex == null || propertyInfo == null)
-                {
-                    throw new Exception("fields should have mapIndex present if class is defined Mappable");
-                }
-
-
-
-                var getterSetter = new GetterSetter(instance)
-                {
-                    Setter = (backingObject, args) => propertyInfo.GetSetMethod().Invoke(backingObject, args),
-                    Getter = propertyInfo.GetMethod
-                };
-
-                instance.Fields.Add(mapIndex.First().IndexName, getterSetter); //bind 
+                tasks.Add(new CreateClass().Generate(entry.Value[0], entry.Value[1]));    
+                tasks.Add(new CreateClass().Generate(entry.Value[1], entry.Value[0]));    
             }
 
-            foreach (var uniqueName in mappable.First().UniqueName)
-            {
-                if (!Links.ContainsKey(uniqueName))
-                {
-                    Links.Add(uniqueName, new Dictionary<Type, WrappedObject>());
-                }
-                Links[uniqueName].Add(mappableType, instance);
+            Task.WhenAll(tasks).GetAwaiter().GetResult(); //block until all is done
 
-                if (!TypeToGroup.ContainsKey(mappableType))
-                {
-                    TypeToGroup.Add(mappableType, new List<string> { uniqueName });
-                }
-                else
-                {
-                    TypeToGroup[mappableType].Add(uniqueName);
-                }
+            var fullstring = string.Join("", tasks.Select(e => e.Result));
+
+            var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullstring));
+
+            var assemblyPath = Path.ChangeExtension(Path.GetTempFileName(), "exe");
+
+            var list = new List<PortableExecutableReference>();
+            foreach (var assembly in assemblies.Where(e => e.IsDynamic == false))
+            {
+                list.Add(MetadataReference.CreateFromFile(assembly.Location));
+            }
+            
+            var compilation = CSharpCompilation.Create(Path.GetFileName(assemblyPath))
+                .WithOptions(new CSharpCompilationOptions(OutputKind.ConsoleApplication))
+                .AddReferences(list)
+                .AddSyntaxTrees(syntaxTree);
+
+            var result = compilation.Emit(assemblyPath);
+            if (result.Success)
+            {
+                Assembly.Load(compilation.AssemblyName);
             }
         }
-
-        internal static void RegisterType<T>()
-        {
-            if (TypeToGroup.ContainsKey(typeof(T))) return;
-            var mappableType = typeof(T);
-            RegisterType(mappableType);
-        }
-
 
         public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
         {
-            RegisterType<TFrom>();
-            RegisterType<TTo>();
+            //RegisterType<TFrom>();
+            //RegisterType<TTo>();
             if (TypeToGroup.TryGetValue(typeof(TFrom), out var linkedList1) &&
                 TypeToGroup.TryGetValue(typeof(TTo), out var linkedList2))
             {

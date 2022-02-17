@@ -1,4 +1,6 @@
+using System.Threading.Tasks;
 using NUnit.Framework;
+using RoboMapper;
 
 namespace Test
 {
@@ -9,7 +11,8 @@ namespace Test
         {
          
         }
-
+        
+        
         [Test]
         public void FromAToB()
         {
