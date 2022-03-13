@@ -19,7 +19,7 @@ namespace RoboMapper
                 var members = new List<MemberDeclarationSyntax>();
                 var className = "Mapped" + Guid.NewGuid().ToString().Replace("-", "");
 
-                var l = GetInnerMappers(@out, @in);
+                var innerMappers = GetInnerMappers(@out, @in);
                 var @namespace = NamespaceDeclaration(ParseName("RoboMapper")).NormalizeWhitespace();
                 @namespace = @namespace.AddUsings(UsingDirective(ParseName("System")));
                 var classDeclaration = ClassDeclaration(className);
@@ -28,93 +28,25 @@ namespace RoboMapper
                 classDeclaration = classDeclaration.AddBaseListTypes(
                     SimpleBaseType(ParseTypeName($"IMapper<{@in.FullName}, {@out.FullName}>")));
 
-                if (l.Any())
+                if (innerMappers.Any())
                 {
-                    members.AddRange(l.Select(e =>
-                    {
-                        return FieldDeclaration(
-                            VariableDeclaration(
-                                    GenericName(
-                                            Identifier("IMapper"))
-                                        .WithTypeArgumentList(
-                                            TypeArgumentList(
-                                                SeparatedList<TypeSyntax>(
-                                                    new SyntaxNodeOrToken[]
-                                                    {
-                                                        IdentifierName(e.Item1.FullName),
-                                                        Token(SyntaxKind.CommaToken),
-                                                        IdentifierName(e.Item2.FullName)
-                                                    }))))
-                                .WithVariables(
-                                    SingletonSeparatedList(
-                                        VariableDeclarator(
-                                            Identifier(Sanitize($"_mapper{e.Item1.FullName}to{e.Item2.FullName}"))))));
-                    }));
+                    AddFields(members, innerMappers);
 
-                    members.AddRange(l.Select(e =>
-                    {
-                        return FieldDeclaration(
-                            VariableDeclaration(
-                                    GenericName(
-                                            Identifier("IMapper"))
-                                        .WithTypeArgumentList(
-                                            TypeArgumentList(
-                                                SeparatedList<TypeSyntax>(
-                                                    new SyntaxNodeOrToken[]
-                                                    {
-                                                        IdentifierName(e.Item1.FullName),
-                                                        Token(SyntaxKind.CommaToken),
-                                                        IdentifierName(e.Item2.FullName)
-                                                    }))))
-                                .WithVariables(
-                                    SingletonSeparatedList(
-                                        VariableDeclarator(
-                                            Identifier(Sanitize($"_mapper{e.Item2.FullName}to{e.Item1.FullName}"))))));
-                    }));
-
-                    var assignments = l.Select(e => ExpressionStatement(
+                    var assignments = innerMappers.Select(e => ExpressionStatement(
                         AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
                             IdentifierName(Sanitize($"_mapper{e.Item1.FullName}to{e.Item2.FullName}")),
                             IdentifierName(Sanitize($"mapper{e.Item1.FullName}to{e.Item2.FullName}"))))
                     ).ToList();
                     
-                    assignments.AddRange(l.Select(e => ExpressionStatement(
+                    assignments.AddRange(innerMappers.Select(e => ExpressionStatement(
                         AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
                             IdentifierName(Sanitize($"_mapper{e.Item2.FullName}to{e.Item1.FullName}")),
                             IdentifierName(Sanitize($"mapper{e.Item1.FullName}to{e.Item2.FullName}"))))
                     )); 
 
-                    members.Add(ConstructorDeclaration(
-                            Identifier(className))
-                        .WithModifiers(
-                            TokenList(
-                                Token(SyntaxKind.PublicKeyword)))
-                        .WithParameterList(
-                            ParameterList(
-                                SeparatedList(l.Select(e =>
-                                {
-                                    return
-                                        Parameter(
-                                                Identifier(Sanitize($"mapper{e.Item1.FullName}to{e.Item2.FullName}")))
-                                            .WithType(
-                                                GenericName(
-                                                        Identifier("IMapper"))
-                                                    .WithTypeArgumentList(
-                                                        TypeArgumentList(
-                                                            SeparatedList<TypeSyntax>(
-                                                                new SyntaxNodeOrToken[]
-                                                                {
-                                                                    IdentifierName(e.Item1.FullName),
-                                                                    Token(SyntaxKind.CommaToken),
-                                                                    IdentifierName(e.Item2.FullName)
-                                                                }))));
-                                }).ToArray())))
-                        .WithBody(
-                            Block(assignments))
-                        .WithSemicolonToken(
-                            MissingToken(SyntaxKind.SemicolonToken)));
+                    AddConstructor(members, className, innerMappers, assignments);
                 }
 
                 members.Add(GenMethod(@in, @out, "obj"));
@@ -128,6 +60,84 @@ namespace RoboMapper
                     .NormalizeWhitespace()
                     .ToFullString();
             });
+        }
+
+        private void AddConstructor(List<MemberDeclarationSyntax> members, string className, List<(Type, Type)> innerMappers, List<ExpressionStatementSyntax> assignments)
+        {
+            members.Add(ConstructorDeclaration(
+                    Identifier(className))
+                .WithModifiers(
+                    TokenList(
+                        Token(SyntaxKind.PublicKeyword)))
+                .WithParameterList(
+                    ParameterList(
+                        SeparatedList(innerMappers.Select(e =>
+                        {
+                            return
+                                Parameter(
+                                        Identifier(Sanitize($"mapper{e.Item1.FullName}to{e.Item2.FullName}")))
+                                    .WithType(
+                                        GenericName(
+                                                Identifier("IMapper"))
+                                            .WithTypeArgumentList(
+                                                TypeArgumentList(
+                                                    SeparatedList<TypeSyntax>(
+                                                        new SyntaxNodeOrToken[]
+                                                        {
+                                                            IdentifierName(e.Item1.FullName!),
+                                                            Token(SyntaxKind.CommaToken),
+                                                            IdentifierName(e.Item2.FullName!)
+                                                        }))));
+                        }).ToArray())))
+                .WithBody(
+                    Block(assignments))
+                .WithSemicolonToken(
+                    MissingToken(SyntaxKind.SemicolonToken)));
+        }
+
+        private void AddFields(List<MemberDeclarationSyntax> members, List<(Type, Type)> l)
+        {
+            members.AddRange(l.Select(e =>
+            {
+                return FieldDeclaration(
+                    VariableDeclaration(
+                            GenericName(
+                                    Identifier("IMapper"))
+                                .WithTypeArgumentList(
+                                    TypeArgumentList(
+                                        SeparatedList<TypeSyntax>(
+                                            new SyntaxNodeOrToken[]
+                                            {
+                                                IdentifierName(e.Item1.FullName!),
+                                                Token(SyntaxKind.CommaToken),
+                                                IdentifierName(e.Item2.FullName!)
+                                            }))))
+                        .WithVariables(
+                            SingletonSeparatedList(
+                                VariableDeclarator(
+                                    Identifier(Sanitize($"_mapper{e.Item1.FullName}to{e.Item2.FullName}"))))));
+            }));
+
+            members.AddRange(l.Select(e =>
+            {
+                return FieldDeclaration(
+                    VariableDeclaration(
+                            GenericName(
+                                    Identifier("IMapper"))
+                                .WithTypeArgumentList(
+                                    TypeArgumentList(
+                                        SeparatedList<TypeSyntax>(
+                                            new SyntaxNodeOrToken[]
+                                            {
+                                                IdentifierName(e.Item1.FullName!),
+                                                Token(SyntaxKind.CommaToken),
+                                                IdentifierName(e.Item2.FullName!)
+                                            }))))
+                        .WithVariables(
+                            SingletonSeparatedList(
+                                VariableDeclarator(
+                                    Identifier(Sanitize($"_mapper{e.Item2.FullName}to{e.Item1.FullName}"))))));
+            }));
         }
 
         private string Sanitize(string str)
@@ -156,7 +166,7 @@ namespace RoboMapper
 
                     var fieldOut = @in.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>().IndexName == mapIndex.First().IndexName) as PropertyInfo;
 
-                    list.Add((propertyInfo.PropertyType, fieldOut.PropertyType));
+                    list.Add((propertyInfo.PropertyType, fieldOut!.PropertyType));
                 }
             }
 
@@ -188,7 +198,7 @@ namespace RoboMapper
                                     .WithInitializer(
                                         EqualsValueClause(
                                             ObjectCreationExpression(
-                                                    IdentifierName(@out.FullName)
+                                                    IdentifierName(@out.FullName!)
                                                 )
                                                 .WithArgumentList(
                                                     ArgumentList()
@@ -229,7 +239,7 @@ namespace RoboMapper
                                 MemberAccessExpression(
                                     SyntaxKind.SimpleMemberAccessExpression,
                                     IdentifierName("obj"),
-                                    IdentifierName(fieldOut.Name)
+                                    IdentifierName(fieldOut!.Name)
                                 )
                             )
                         ));
@@ -247,7 +257,7 @@ namespace RoboMapper
                             InvocationExpression(
                                     MemberAccessExpression(
                                         SyntaxKind.SimpleMemberAccessExpression,
-                                        IdentifierName(Sanitize($"_mapper{propertyInfo.PropertyType.FullName}to{fieldOut.PropertyType.FullName}")),
+                                        IdentifierName(Sanitize($"_mapper{propertyInfo.PropertyType.FullName}to{fieldOut!.PropertyType.FullName}")),
                                         IdentifierName("Map")
                                     )
                                 )
@@ -288,7 +298,7 @@ namespace RoboMapper
                                     Identifier(inputParameter)
                                 )
                                 .WithType(
-                                    IdentifierName(@in.FullName)
+                                    IdentifierName(@in.FullName!)
                                 )
                         )
                     )
@@ -300,20 +310,20 @@ namespace RoboMapper
                 );
         }
 
-        private bool CanMapOneToOne(Type type) => type == typeof(int)
-                                                  || type == typeof(double)
-                                                  || type == typeof(DateTime)
-                                                  || type == typeof(DateTimeOffset)
-                                                  || type == typeof(string)
-                                                  || type == typeof(bool)
-                                                  || type == typeof(char)
-                                                  || type == typeof(decimal)
-                                                  || type == typeof(long)
-                                                  || type == typeof(sbyte)
-                                                  || type == typeof(short)
-                                                  || type == typeof(uint)
-                                                  || type == typeof(ulong)
-                                                  || type == typeof(ushort)
-                                                  || type == typeof(float);
+        private static bool CanMapOneToOne(Type type) => type == typeof(int)
+                                                         || type == typeof(double)
+                                                         || type == typeof(DateTime)
+                                                         || type == typeof(DateTimeOffset)
+                                                         || type == typeof(string)
+                                                         || type == typeof(bool)
+                                                         || type == typeof(char)
+                                                         || type == typeof(decimal)
+                                                         || type == typeof(long)
+                                                         || type == typeof(sbyte)
+                                                         || type == typeof(short)
+                                                         || type == typeof(uint)
+                                                         || type == typeof(ulong)
+                                                         || type == typeof(ushort)
+                                                         || type == typeof(float);
     }
 }

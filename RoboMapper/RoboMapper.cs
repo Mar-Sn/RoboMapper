@@ -6,19 +6,90 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
 
 namespace RoboMapper
 {
     public static class RoboMapper
     {
-        private static Dictionary<Type, object> _mappers = new Dictionary<Type, object>();
+        private static readonly Dictionary<Type, object> Mappers = new Dictionary<Type, object>();
 
         static RoboMapper()
         {
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
+            var dictionary = FindMappables(assemblies);
+
+            var tasks = GenerateIMappers(dictionary);
+
+            var fullString = string.Join("", tasks.Select(e => e.Result));
+
+            var compilation = CreateAssemblyFromString(fullString, assemblies);
+
+            TryLoadAssemblyToMappers(compilation);
+        }
+
+        private static void TryLoadAssemblyToMappers(CSharpCompilation compilation)
+        {
+            using (var ms = new MemoryStream())
+            {
+                var result = compilation.Emit(ms);
+
+                if (!result.Success)
+                {
+                    var failures = result.Diagnostics.Where(diagnostic =>
+                        diagnostic.IsWarningAsError ||
+                        diagnostic.Severity == DiagnosticSeverity.Error);
+
+                    foreach (var diagnostic in failures)
+                    {
+                        Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
+                    }
+                }
+                else
+                {
+                    LoadGeneratedAssembly(ms);
+                }
+            }
+        }
+
+        private static CSharpCompilation CreateAssemblyFromString(string fullString, Assembly[] assemblies)
+        {
+            var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
+
+            var assemblyPath = Path.ChangeExtension(Path.GetTempFileName(), ".dll");
+
+            var list = new List<PortableExecutableReference>();
+            foreach (var assembly in assemblies.Where(e => e.IsDynamic == false))
+            {
+                list.Add(MetadataReference.CreateFromFile(assembly.Location));
+            }
+
+
+            var tmpFile = Path.GetFileName(assemblyPath);
+            var compilation = CSharpCompilation.Create(tmpFile)
+                .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
+                .AddReferences(list)
+                .AddSyntaxTrees(syntaxTree);
+            return compilation;
+        }
+
+        private static List<Task<string>> GenerateIMappers(Dictionary<string, List<Type>> dictionary)
+        {
+            var tasks = new List<Task<string>>();
+
+            foreach (var entry in dictionary)
+            {
+                tasks.Add(new CreateClass().Generate(entry.Value[0], entry.Value[1]));
+                tasks.Add(new CreateClass().Generate(entry.Value[1], entry.Value[0]));
+            }
+
+            Task.WhenAll(tasks).GetAwaiter().GetResult(); //block until all is done
+            return tasks;
+        }
+
+        private static Dictionary<string, List<Type>> FindMappables(Assembly[] assemblies)
+        {
             var dictionary = new Dictionary<string, List<Type>>();
 
             foreach (var assembly in assemblies)
@@ -40,96 +111,53 @@ namespace RoboMapper
                 }
             }
 
-            var tasks = new List<Task<string>>();
+            return dictionary;
+        }
 
-            foreach (var entry in dictionary)
+        private static void LoadGeneratedAssembly(MemoryStream ms)
+        {
+            ms.Seek(0, SeekOrigin.Begin);
+            var assembly = Assembly.Load(ms.ToArray());
+
+            var processQueue = new Queue<Type>(assembly.GetTypes());
+
+            while (processQueue.Count > 0)
             {
-                tasks.Add(new CreateClass().Generate(entry.Value[0], entry.Value[1]));
-                tasks.Add(new CreateClass().Generate(entry.Value[1], entry.Value[0]));
-            }
-
-            Task.WhenAll(tasks).GetAwaiter().GetResult(); //block until all is done
-
-            var fullstring = string.Join("", tasks.Select(e => e.Result));
-
-            var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullstring));
-
-            var assemblyPath = Path.ChangeExtension(Path.GetTempFileName(), ".dll");
-
-            var list = new List<PortableExecutableReference>();
-            foreach (var assembly in assemblies.Where(e => e.IsDynamic == false))
-            {
-                list.Add(MetadataReference.CreateFromFile(assembly.Location));
-            }
-
-
-            var tmpFile = Path.GetFileName(assemblyPath);
-            var compilation = CSharpCompilation.Create(tmpFile)
-                .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
-                .AddReferences(list)
-                .AddSyntaxTrees(syntaxTree);
-
-            using (var ms = new MemoryStream())
-            {
-                EmitResult result = compilation.Emit(ms);
-
-                if (!result.Success)
+                var @type = processQueue.Dequeue();
+                if (type.GetConstructors().Any(e => e.GetParameters().Length > 0))
                 {
-                    IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic =>
-                        diagnostic.IsWarningAsError ||
-                        diagnostic.Severity == DiagnosticSeverity.Error);
-
-                    foreach (Diagnostic diagnostic in failures)
+                    var constructorArgs = type.GetConstructors().SelectMany(e => e.GetParameters());
+                    var injectedArgs = new List<object>();
+                    var hasFullArgsSet = true;
+                    foreach (var arg in constructorArgs)
                     {
-                        Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
+                        if (Mappers.TryGetValue(arg.ParameterType, out var mapper))
+                        {
+                            injectedArgs.Add(mapper);
+                        }
+                        else
+                        {
+                            hasFullArgsSet = false;
+                            processQueue.Enqueue(@type);
+                            break;
+                        }
+                    }
+
+                    if (hasFullArgsSet)
+                    {
+                        Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray()));
                     }
                 }
                 else
                 {
-                    ms.Seek(0, SeekOrigin.Begin);
-                    var assembly = Assembly.Load(ms.ToArray());
-
-                    var processQueue = new Queue<Type>(assembly.GetTypes());
-
-                    while (processQueue.Count > 0)
-                    {
-                        var @type = processQueue.Dequeue();
-                        if (type.GetConstructors().Any(e => e.GetParameters().Length > 0))
-                        {
-                            var constructorArgs = type.GetConstructors().SelectMany(e => e.GetParameters());
-                            var injectedArgs = new List<object>();
-                            var hasFullArgsSet = true;
-                            foreach (var arg in constructorArgs)
-                            {
-                                if (_mappers.TryGetValue(arg.ParameterType, out var mapper))
-                                {
-                                    injectedArgs.Add(mapper);
-                                }
-                                else
-                                {
-                                    hasFullArgsSet = false;
-                                    processQueue.Enqueue(@type);
-                                    break;
-                                }
-                            }
-
-                            if (hasFullArgsSet)
-                            {
-                                _mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray()));
-                            }
-                        }
-                        else
-                        {
-                            _mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type));
-                        }
-                    }
+                    Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type));
                 }
             }
         }
 
         public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
         {
-            if (_mappers.TryGetValue(typeof(IMapper<TFrom, TTo>), out var mapper))
+            if (Mappers.TryGetValue(typeof(IMapper<TFrom, TTo>), out var mapper))
             {
                 return mapper as IMapper<TFrom, TTo>;
             }

@@ -7,7 +7,7 @@ namespace RoboMapper
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field | AttributeTargets.Class, AllowMultiple = true)]
     public class MapIndex: Attribute
     {
-        public string IndexName { get; set; }
+        public string IndexName { get; }
 
         public MapIndex(string indexName)
         {
