@@ -53,21 +53,17 @@ namespace RoboMapper
             }
         }
 
-        private static CSharpCompilation CreateAssemblyFromString(string fullString, Assembly[] assemblies)
+        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies)
         {
             var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
-
-            var assemblyPath = Path.ChangeExtension(Path.GetTempFileName(), ".dll");
-
+            
             var list = new List<PortableExecutableReference>();
             foreach (var assembly in assemblies.Where(e => e.IsDynamic == false))
             {
                 list.Add(MetadataReference.CreateFromFile(assembly.Location));
             }
-
-
-            var tmpFile = Path.GetFileName(assemblyPath);
-            var compilation = CSharpCompilation.Create(tmpFile)
+            
+            var compilation = CSharpCompilation.Create("mapper_generator")
                 .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
                 .AddReferences(list)
                 .AddSyntaxTrees(syntaxTree);
