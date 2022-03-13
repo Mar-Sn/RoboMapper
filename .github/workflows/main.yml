@@ -28,6 +28,6 @@ jobs:
       - name: ShowFakeEnvsWorkSpace
         run: echo $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg
       - name: ShowFakeEnvsApiKey
-        run: echo $NUGET_API  
+        run: echo ${{secrets.NUGET_API}}   
       - name: publish
-        run: dotnet nuget push $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg -k $NUGET_API -s https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg -k ${{secrets.NUGET_API}} -s https://api.nuget.org/v3/index.json --skip-duplicate
