@@ -58,7 +58,7 @@ namespace RoboMapper
             var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
             
             var list = new List<PortableExecutableReference>();
-            foreach (var assembly in assemblies.Where(e => e.IsDynamic == false))
+            foreach (var assembly in assemblies.Where(e => e.IsDynamic == false && string.IsNullOrWhiteSpace(e.Location) == false))
             {
                 list.Add(MetadataReference.CreateFromFile(assembly.Location));
             }
