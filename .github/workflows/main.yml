@@ -25,7 +25,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: nuget
-        path: /bin/Release/RoboMapper.*.nupkg
+        path: /home/runner/work/RoboMapper/RoboMapper/RoboMapper/bin/Release/RoboMapper.*.nupkg
   publish:
     runs-on: ubuntu-latest
     environment: Release
