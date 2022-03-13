@@ -24,4 +24,4 @@ jobs:
     - name: Pack
       run: dotnet pack --configuration Release
     - name: publish
-      run: dotnet nuget push /bin/Release/RoboMapper.*.nupkg -k $NUGET_API -s https://api.nuget.org/v3/index.json --skip-duplicate
+      run: dotnet nuget push $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg -k ${{ Release.NUGET_API }} -s https://api.nuget.org/v3/index.json --skip-duplicate
