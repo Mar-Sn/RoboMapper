@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -14,10 +12,6 @@ namespace RoboMapper
 {
     public class CreateClass
     {
-        public CreateClass()
-        {
-        }
-
         public Task<string> Generate(Type @in, Type @out)
         {
             return Task.Run(() =>
@@ -52,7 +46,7 @@ namespace RoboMapper
                                                         IdentifierName(e.Item2.FullName)
                                                     }))))
                                 .WithVariables(
-                                    SingletonSeparatedList<VariableDeclaratorSyntax>(
+                                    SingletonSeparatedList(
                                         VariableDeclarator(
                                             Identifier(Sanitize($"_mapper{e.Item1.FullName}to{e.Item2.FullName}"))))));
                     }));
@@ -73,7 +67,7 @@ namespace RoboMapper
                                                         IdentifierName(e.Item2.FullName)
                                                     }))))
                                 .WithVariables(
-                                    SingletonSeparatedList<VariableDeclaratorSyntax>(
+                                    SingletonSeparatedList(
                                         VariableDeclarator(
                                             Identifier(Sanitize($"_mapper{e.Item2.FullName}to{e.Item1.FullName}"))))));
                     }));
@@ -146,7 +140,8 @@ namespace RoboMapper
             var list = new List<(Type, Type)>();
             foreach (var field in @out.GetMembers().Where(e => e is PropertyInfo))
             {
-                var mapIndex = field.GetCustomAttributes<MapIndex>();
+                if (field.GetCustomAttributes<MapIgnore>().Any()) continue;
+                var mapIndex = field.GetCustomAttributes<MapIndex>().ToList();
                 if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {@out.FullName} has no index!");
 
                 var propertyInfo = field as PropertyInfo;
@@ -155,7 +150,7 @@ namespace RoboMapper
                     throw new Exception("fields should have mapIndex present if class is defined Mappable");
                 }
 
-                if (propertyInfo.PropertyType.BaseType == typeof(object))
+                if (CanMapOneToOne(propertyInfo.PropertyType) == false)
                 {
                     //this is not a primitive
 
@@ -186,7 +181,7 @@ namespace RoboMapper
                             )
                         )
                         .WithVariables(
-                            SingletonSeparatedList<VariableDeclaratorSyntax>(
+                            SingletonSeparatedList(
                                 VariableDeclarator(
                                         Identifier("m")
                                     )
@@ -207,7 +202,8 @@ namespace RoboMapper
 
             foreach (var field in @out.GetMembers().Where(e => e is PropertyInfo))
             {
-                var mapIndex = field.GetCustomAttributes<MapIndex>();
+                if(field.GetCustomAttributes<MapIgnore>().Any()) continue;
+                var mapIndex = field.GetCustomAttributes<MapIndex>().ToList();
                 if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {@in.FullName} has no index!");
 
                 var propertyInfo = field as PropertyInfo;
@@ -219,21 +215,7 @@ namespace RoboMapper
                 var fieldOut = @in.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>().IndexName == mapIndex.First().IndexName) as PropertyInfo;
 
 
-                if (propertyInfo.PropertyType == typeof(int)
-                    || propertyInfo.PropertyType == typeof(double)
-                    || propertyInfo.PropertyType == typeof(DateTime)
-                    || propertyInfo.PropertyType == typeof(DateTimeOffset)
-                    || propertyInfo.PropertyType == typeof(string)
-                    || propertyInfo.PropertyType == typeof(bool)
-                    || propertyInfo.PropertyType == typeof(char)
-                    || propertyInfo.PropertyType == typeof(decimal)
-                    || propertyInfo.PropertyType == typeof(long)
-                    || propertyInfo.PropertyType == typeof(sbyte)
-                    || propertyInfo.PropertyType == typeof(short)
-                    || propertyInfo.PropertyType == typeof(uint)
-                    || propertyInfo.PropertyType == typeof(ulong)
-                    || propertyInfo.PropertyType == typeof(ushort)
-                    || propertyInfo.PropertyType == typeof(float))
+                if (CanMapOneToOne(propertyInfo.PropertyType))
                 {
                     localList.Add(
                         ExpressionStatement(
@@ -301,7 +283,7 @@ namespace RoboMapper
                 )
                 .WithParameterList(
                     ParameterList(
-                        SingletonSeparatedList<ParameterSyntax>(
+                        SingletonSeparatedList(
                             Parameter(
                                     Identifier(inputParameter)
                                 )
@@ -318,44 +300,20 @@ namespace RoboMapper
                 );
         }
 
-        private string FromBody(Type @in, Type @out, string inputParameter)
-        {
-            var strBuilder = new StringBuilder();
-            var inMappable = @in.GetCustomAttributes<Mappable>();
-            if (!inMappable.Any()) throw new Exception("This is not a mappable");
-
-            strBuilder.Append("{" + $"var @out = new {@out.FullName}(); ");
-
-            foreach (var field in @in.GetMembers().Where(e => e is PropertyInfo))
-            {
-                var mapIndex = field.GetCustomAttributes<MapIndex>();
-                if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {@in.FullName} has no index!");
-
-                var propertyInfo = field as PropertyInfo;
-                if (mapIndex == null || propertyInfo == null)
-                {
-                    throw new Exception("fields should have mapIndex present if class is defined Mappable");
-                }
-            }
-
-            foreach (var field in @out.GetMembers().Where(e => e is PropertyInfo))
-            {
-                var mapIndex = field.GetCustomAttributes<MapIndex>();
-                if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {@in.FullName} has no index!");
-
-                var propertyInfo = field as PropertyInfo;
-                if (mapIndex == null || propertyInfo == null)
-                {
-                    throw new Exception("fields should have mapIndex present if class is defined Mappable");
-                }
-
-                var fieldOut = @in.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>().IndexName == mapIndex.First().IndexName);
-
-                strBuilder.Append($"@out.{field.Name} = obj.{fieldOut.Name};");
-            }
-
-            strBuilder.AppendLine(" return @out;}");
-            return strBuilder.ToString();
-        }
+        private bool CanMapOneToOne(Type type) => type == typeof(int)
+                                                  || type == typeof(double)
+                                                  || type == typeof(DateTime)
+                                                  || type == typeof(DateTimeOffset)
+                                                  || type == typeof(string)
+                                                  || type == typeof(bool)
+                                                  || type == typeof(char)
+                                                  || type == typeof(decimal)
+                                                  || type == typeof(long)
+                                                  || type == typeof(sbyte)
+                                                  || type == typeof(short)
+                                                  || type == typeof(uint)
+                                                  || type == typeof(ulong)
+                                                  || type == typeof(ushort)
+                                                  || type == typeof(float);
     }
 }
