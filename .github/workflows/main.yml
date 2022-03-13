@@ -6,9 +6,7 @@ on:
 
 jobs:
   build:
-  
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
     - name: Setup .NET
@@ -23,9 +21,13 @@ jobs:
       run: dotnet test --no-build --verbosity normal
     - name: Pack
       run: dotnet pack --configuration Release
-    - name: ShowFakeEnvsWorkSpace
-      run: echo $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg
-    - name: ShowFakeEnvsApiKey
-      run: echo $NUGET_API  
-    - name: publish
-      run: dotnet nuget push $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg -k $NUGET_API -s https://api.nuget.org/v3/index.json --skip-duplicate
+  publish:
+    runs-on: ubuntu-latest
+    environment: Release
+    steps:
+      - name: ShowFakeEnvsWorkSpace
+        run: echo $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg
+      - name: ShowFakeEnvsApiKey
+        run: echo $NUGET_API  
+      - name: publish
+        run: dotnet nuget push $GITHUB_WORKSPACE/bin/Release/RoboMapper.*.nupkg -k $NUGET_API -s https://api.nuget.org/v3/index.json --skip-duplicate
