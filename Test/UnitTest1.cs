@@ -9,7 +9,8 @@ namespace Test
         {
          
         }
-
+        
+        
         [Test]
         public void FromAToB()
         {
@@ -70,6 +71,20 @@ namespace Test
             });
 
             Assert.AreEqual(7698, d.A.Id1);
+        }
+
+        [Test]
+        public void TestIgnore()
+        {
+            var mapper = RoboMapper.RoboMapper.GetMapper<Ignore1, Ignore2>();
+
+            var test = mapper.Map(new Ignore2
+            {
+                Test1 = "test1"
+            });
+            
+            Assert.AreEqual("test1", test.Test1);
+            Assert.AreEqual(null, test.Test2);
         }
     }
 }

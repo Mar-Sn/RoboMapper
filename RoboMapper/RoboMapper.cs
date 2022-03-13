@@ -1,108 +1,165 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Text;
 
 namespace RoboMapper
 {
     public static class RoboMapper
     {
-        private static readonly Dictionary<string, Dictionary<Type, WrappedObject>> Links = new Dictionary<string, Dictionary<Type, WrappedObject>>();
-        private static readonly Dictionary<Type, List<string>> TypeToGroup = new Dictionary<Type, List<string>>();
+        private static readonly Dictionary<Type, object> Mappers = new Dictionary<Type, object>();
 
         static RoboMapper()
         {
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
-            foreach (var assembly in assemblies)
-            {
-                var mps = assembly.GetTypes();
+            var dictionary = FindMappables(assemblies);
 
-                foreach (var type in mps)
-                {
-                    if (type.GetCustomAttribute<Mappable>() != null)
-                    {
-                        RegisterType(type);
-                    }
-                }
-            }
+            var tasks = GenerateIMappers(dictionary);
+
+            var fullString = string.Join("", tasks.Select(e => e.Result));
+
+            var compilation = CreateAssemblyFromString(fullString, assemblies);
+
+            TryLoadAssemblyToMappers(compilation);
         }
 
-        internal static void RegisterType(Type type)
+        private static void TryLoadAssemblyToMappers(CSharpCompilation compilation)
         {
-            if (TypeToGroup.ContainsKey(type)) return;
-            var mappableType = type;
-            var mappable = mappableType.GetCustomAttributes<Mappable>();
-            if (!mappable.Any()) throw new Exception("This is not a mappable");
-            //found a mappable
-            //var instance = Activator.CreateInstance(type);
-            var instance = new WrappedObject(Activator.CreateInstance(mappableType));
-
-
-            foreach (var field in mappableType.GetMembers().Where(e => e is PropertyInfo))
+            using (var ms = new MemoryStream())
             {
-                var mapIndex = field.GetCustomAttributes<MapIndex>();
-                if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {mappableType.Name} has no index!");
+                var result = compilation.Emit(ms);
 
-                var propertyInfo = field as PropertyInfo;
-                if (mapIndex == null || propertyInfo == null)
+                if (!result.Success)
                 {
-                    throw new Exception("fields should have mapIndex present if class is defined Mappable");
-                }
+                    var failures = result.Diagnostics.Where(diagnostic =>
+                        diagnostic.IsWarningAsError ||
+                        diagnostic.Severity == DiagnosticSeverity.Error);
 
-
-
-                var getterSetter = new GetterSetter(instance)
-                {
-                    Setter = (backingObject, args) => propertyInfo.GetSetMethod().Invoke(backingObject, args),
-                    Getter = propertyInfo.GetMethod
-                };
-
-                instance.Fields.Add(mapIndex.First().IndexName, getterSetter); //bind 
-            }
-
-            foreach (var uniqueName in mappable.First().UniqueName)
-            {
-                if (!Links.ContainsKey(uniqueName))
-                {
-                    Links.Add(uniqueName, new Dictionary<Type, WrappedObject>());
-                }
-                Links[uniqueName].Add(mappableType, instance);
-
-                if (!TypeToGroup.ContainsKey(mappableType))
-                {
-                    TypeToGroup.Add(mappableType, new List<string> { uniqueName });
+                    foreach (var diagnostic in failures)
+                    {
+                        Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
+                    }
                 }
                 else
                 {
-                    TypeToGroup[mappableType].Add(uniqueName);
+                    LoadGeneratedAssembly(ms);
                 }
             }
         }
 
-        internal static void RegisterType<T>()
+        private static CSharpCompilation CreateAssemblyFromString(string fullString, Assembly[] assemblies)
         {
-            if (TypeToGroup.ContainsKey(typeof(T))) return;
-            var mappableType = typeof(T);
-            RegisterType(mappableType);
+            var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
+
+            var assemblyPath = Path.ChangeExtension(Path.GetTempFileName(), ".dll");
+
+            var list = new List<PortableExecutableReference>();
+            foreach (var assembly in assemblies.Where(e => e.IsDynamic == false))
+            {
+                list.Add(MetadataReference.CreateFromFile(assembly.Location));
+            }
+
+
+            var tmpFile = Path.GetFileName(assemblyPath);
+            var compilation = CSharpCompilation.Create(tmpFile)
+                .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
+                .AddReferences(list)
+                .AddSyntaxTrees(syntaxTree);
+            return compilation;
         }
 
+        private static List<Task<string>> GenerateIMappers(Dictionary<string, List<Type>> dictionary)
+        {
+            var tasks = new List<Task<string>>();
+
+            foreach (var entry in dictionary)
+            {
+                tasks.Add(new CreateClass().Generate(entry.Value[0], entry.Value[1]));
+                tasks.Add(new CreateClass().Generate(entry.Value[1], entry.Value[0]));
+            }
+
+            Task.WhenAll(tasks).GetAwaiter().GetResult(); //block until all is done
+            return tasks;
+        }
+
+        private static Dictionary<string, List<Type>> FindMappables(Assembly[] assemblies)
+        {
+            var dictionary = new Dictionary<string, List<Type>>();
+
+            foreach (var assembly in assemblies)
+            {
+                var mps = assembly.GetTypes().Where(e => e.GetCustomAttribute<Mappable>() != null);
+
+                foreach (var @type in mps)
+                {
+                    var mappables = @type.GetCustomAttribute<Mappable>();
+                    foreach (var mappable in mappables.UniqueName)
+                    {
+                        if (!dictionary.ContainsKey(mappable))
+                        {
+                            dictionary.Add(mappable, new List<Type>());
+                        }
+
+                        dictionary[mappable].Add(@type);
+                    }
+                }
+            }
+
+            return dictionary;
+        }
+
+        private static void LoadGeneratedAssembly(MemoryStream ms)
+        {
+            ms.Seek(0, SeekOrigin.Begin);
+            var assembly = Assembly.Load(ms.ToArray());
+
+            var processQueue = new Queue<Type>(assembly.GetTypes());
+
+            while (processQueue.Count > 0)
+            {
+                var @type = processQueue.Dequeue();
+                if (type.GetConstructors().Any(e => e.GetParameters().Length > 0))
+                {
+                    var constructorArgs = type.GetConstructors().SelectMany(e => e.GetParameters());
+                    var injectedArgs = new List<object>();
+                    var hasFullArgsSet = true;
+                    foreach (var arg in constructorArgs)
+                    {
+                        if (Mappers.TryGetValue(arg.ParameterType, out var mapper))
+                        {
+                            injectedArgs.Add(mapper);
+                        }
+                        else
+                        {
+                            hasFullArgsSet = false;
+                            processQueue.Enqueue(@type);
+                            break;
+                        }
+                    }
+
+                    if (hasFullArgsSet)
+                    {
+                        Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray()));
+                    }
+                }
+                else
+                {
+                    Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type));
+                }
+            }
+        }
 
         public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
         {
-            RegisterType<TFrom>();
-            RegisterType<TTo>();
-            if (TypeToGroup.TryGetValue(typeof(TFrom), out var linkedList1) &&
-                TypeToGroup.TryGetValue(typeof(TTo), out var linkedList2))
+            if (Mappers.TryGetValue(typeof(IMapper<TFrom, TTo>), out var mapper))
             {
-                foreach (var link1 in linkedList1)
-                {
-                    var link2 = linkedList2.SingleOrDefault(e => e == link1);
-                    if (link2 != null)
-                    {
-                        return new Mapper<TFrom, TTo>(Links[link1][typeof(TFrom)], Links[link2][typeof(TTo)]);
-                    }
-                }
+                return mapper as IMapper<TFrom, TTo>;
             }
             throw new Exception("cannot create mapper since objects are not linked with Mappable");
         }
