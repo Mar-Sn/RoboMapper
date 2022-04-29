@@ -143,7 +143,10 @@ namespace RoboMapper
 
         private string Sanitize(string str)
         {
-            return str.Replace(" ", "").Replace(".", "");
+            return str
+                .Replace(" ", "")
+                .Replace("`", "")
+                .Replace(".", "");
         }
 
         private List<(Type, Type)> GetInnerMappers(Type @out, Type @in)
@@ -249,7 +252,7 @@ namespace RoboMapper
                 var fieldOut = @in.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>()?.IndexName == mapIndex.First().IndexName) as PropertyInfo;
 
 
-                if (CanMapOneToOne(propertyInfo.PropertyType))
+                if (CanMapOneToOne(propertyInfo.PropertyType) && CanMapOneToOne(fieldOut.PropertyType))
                 {
                     localList.Add(
                         ExpressionStatement(
@@ -268,6 +271,53 @@ namespace RoboMapper
                             )
                         ));
                 }
+                else if (IsNullableKnownType(propertyInfo.PropertyType) || IsNullableKnownType(fieldOut.PropertyType))
+                {
+                    var inArguments = propertyInfo.PropertyType.GetGenericArguments();
+                    if (inArguments.Length == 0)
+                    {
+                        inArguments = new []{propertyInfo.PropertyType};
+                    }
+                    var outArguments = fieldOut.PropertyType.GetGenericArguments();
+                    if (outArguments.Length == 0)
+                    {
+                        outArguments = new []{fieldOut.PropertyType};
+                    }
+                    
+                    var mapperName = $"_mapper{inArguments[0].Name}to{outArguments[0].Name}";
+                    localList.Add(ExpressionStatement(
+                        AssignmentExpression(
+                            SyntaxKind.SimpleAssignmentExpression,
+                            MemberAccessExpression(
+                                SyntaxKind.SimpleMemberAccessExpression,
+                                IdentifierName("m"),
+                                IdentifierName(field.Name)),
+                            ConditionalExpression(
+                                BinaryExpression(
+                                    SyntaxKind.NotEqualsExpression,
+                                    MemberAccessExpression(
+                                        SyntaxKind.SimpleMemberAccessExpression,
+                                        IdentifierName("obj"),
+                                        IdentifierName(field.Name)),
+                                    LiteralExpression(
+                                        SyntaxKind.NullLiteralExpression)),
+                                InvocationExpression(
+                                        MemberAccessExpression(
+                                            SyntaxKind.SimpleMemberAccessExpression,
+                                            IdentifierName(mapperName),
+                                            IdentifierName("Map")))
+                                    .WithArgumentList(
+                                        ArgumentList(
+                                            SingletonSeparatedList<ArgumentSyntax>(
+                                                Argument(
+                                                    MemberAccessExpression(
+                                                        SyntaxKind.SimpleMemberAccessExpression,
+                                                        IdentifierName("obj"),
+                                                        IdentifierName(field.Name)))))),
+                                LiteralExpression(
+                                    SyntaxKind.NullLiteralExpression)))
+                        ));                    
+                }
                 else
                 {
                     localList.Add(ExpressionStatement(
@@ -281,7 +331,7 @@ namespace RoboMapper
                             InvocationExpression(
                                     MemberAccessExpression(
                                         SyntaxKind.SimpleMemberAccessExpression,
-                                        IdentifierName(Sanitize($"_mapper{propertyInfo.PropertyType.FullName}to{fieldOut!.PropertyType.FullName}")),
+                                        IdentifierName(Sanitize($"_mapper{propertyInfo.PropertyType.Name}to{fieldOut!.PropertyType.Name}")),
                                         IdentifierName("Map")
                                     )
                                 )
@@ -334,6 +384,19 @@ namespace RoboMapper
                 );
         }
 
+        private bool IsNullableKnownType(Type type)
+        {
+            var mapIndexable = type.GetCustomAttribute<MapIndex>();
+            //assume for now that it has a mapper
+            //TODO optimize
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool CanMapOneToOne(Type type) => type == typeof(int)
                                                          || type == typeof(double)
                                                          || type == typeof(DateTime)
@@ -354,7 +417,8 @@ namespace RoboMapper
         private static bool BasicNullableCheck(Type type) => type == typeof(int?)
                                                              || type == typeof(double?)
                                                              || type == typeof(DateTime?)
-                                                             || type == typeof(DateTimeOffset?)  
+                                                             || type == typeof(DateTimeOffset?)
+                                                             || type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && Nullable.GetUnderlyingType(type) == typeof(string)
                                                              || type == typeof(bool?)
                                                              || type == typeof(char?)
                                                              || type == typeof(decimal?)
