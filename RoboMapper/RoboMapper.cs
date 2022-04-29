@@ -151,6 +151,8 @@ namespace RoboMapper
             }
         }
 
+        public static void Init(){}
+        
         public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
         {
             if (Mappers.TryGetValue(typeof(IMapper<TFrom, TTo>), out var mapper))
@@ -158,6 +160,11 @@ namespace RoboMapper
                 return mapper as IMapper<TFrom, TTo>;
             }
             throw new Exception("cannot create mapper since objects are not linked with Mappable");
+        }
+
+        public static void RegisterFieldMapping<TIn, TOut>(IMapper<TIn, TOut> inToOut)
+        {
+            
         }
     }
 }

@@ -9,6 +9,7 @@
     <Description>A typesafe mapper that generates mappers into memory</Description>
     <RepositoryUrl>https://github.com/Mar-Sn/RoboMapper</RepositoryUrl>
     <PackageTags>mapper</PackageTags>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
