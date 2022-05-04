@@ -36,15 +36,15 @@ namespace RoboMapper
                     var assignments = innerMappers.Select(e => ExpressionStatement(
                         AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
-                            IdentifierName(Sanitize($"_mapper{e.Item1.FullName}to{e.Item2.FullName}")),
-                            IdentifierName(Sanitize($"mapper{e.Item1.FullName}to{e.Item2.FullName}"))))
+                            IdentifierName(Sanitize($"_mapper{e.Item1.Name}to{e.Item2.Name}")),
+                            IdentifierName(Sanitize($"mapper{e.Item1.Name}to{e.Item2.Name}"))))
                     ).ToList();
 
                     assignments.AddRange(innerMappers.Select(e => ExpressionStatement(
                         AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
-                            IdentifierName(Sanitize($"_mapper{e.Item2.FullName}to{e.Item1.FullName}")),
-                            IdentifierName(Sanitize($"mapper{e.Item1.FullName}to{e.Item2.FullName}"))))
+                            IdentifierName(Sanitize($"_mapper{e.Item2.Name}to{e.Item1.Name}")),
+                            IdentifierName(Sanitize($"mapper{e.Item1.Name}to{e.Item2.Name}"))))
                     ));
 
                     AddConstructor(members, className, innerMappers, assignments);
@@ -151,12 +151,11 @@ namespace RoboMapper
 
         private List<(Type, Type)> GetInnerMappers(Type @out, Type @in)
         {
-            var list = new List<(Type, Type)>();
-            foreach (var field in @out.GetMembers().Where(e => e is PropertyInfo))
+            void InnerForeach(Type _in, Type _out, MemberInfo field, List<(Type, Type)> valueTuples)
             {
-                if (field.GetCustomAttributes<MapIgnore>().Any()) continue;
+                if (field.GetCustomAttributes<MapIgnore>().Any()) return;
                 var mapIndex = field.GetCustomAttributes<MapIndex>().ToList();
-                if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {@out.FullName} has no index!");
+                if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {_in.FullName} has no index!");
 
                 var propertyInfo = field as PropertyInfo;
                 if (mapIndex == null || propertyInfo == null)
@@ -164,40 +163,76 @@ namespace RoboMapper
                     throw new Exception("fields should have mapIndex present if class is defined Mappable");
                 }
 
-                /*if (mapIndex.First().CustomParser != null)
-                {
-                    //just a simple check to see if the type is of Imapper
-                    var parserType = mapIndex.First().CustomParser;
-                    var interfaces = parserType.GetInterfaces();
-                    if (interfaces.Any(e => e.FullName.StartsWith("RoboMapper.IMapper")))
-                    {
-                        //TODO is there a better way to check?
-                        //just load the in and out of the parser. No checking required as its enforced by interface
-                        var types = interfaces.First(e => e.FullName.StartsWith("RoboMapper.IMapper")).GenericTypeArguments;
-                        list.Add((types[0], types[1]));
-                    }
-                    else
-                    {
-                        throw new ArgumentException("a parser can only be of type IMapper");
-                    }
-                } */
+
                 if (CanMapOneToOne(propertyInfo.PropertyType) == false)
                 {
                     //this is not a primitive
                     try
                     {
-                        var fieldOut = @in.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>()?.IndexName == mapIndex.First().IndexName) as PropertyInfo;
+                        // if (IsNullable())
+                        // {
+                        //     //just a simple check to see if the type is of Imapper
+                        //     // var parserType = mapIndex.First().CustomParser;
+                        //     // var interfaces = parserType.GetInterfaces();
+                        //     // if (interfaces.Any(e => e.FullName.StartsWith("RoboMapper.IMapper")))
+                        //     // {
+                        //     //     //TODO is there a better way to check?
+                        //     //     //just load the in and out of the parser. No checking required as its enforced by interface
+                        //     //     var types = interfaces.First(e => e.FullName.StartsWith("RoboMapper.IMapper")).GenericTypeArguments;
+                        //     //     list.Add((types[0], types[1]));
+                        //     // }
+                        //     // else
+                        //     // {
+                        //     //     throw new ArgumentException("a parser can only be of type IMapper");
+                        //     // }
+                        // }
+                        // else
+                        // {
+                        var fieldOut = _out.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>()?.IndexName == mapIndex.First().IndexName) as PropertyInfo;
 
-                        list.Add((propertyInfo.PropertyType, fieldOut!.PropertyType));
+                        var propertyInfoIn = propertyInfo.PropertyType;
+                        var propertyInfoOut = fieldOut!.PropertyType;
+
+                        if (IsNullable(propertyInfoIn))
+                        {
+                            var genericArg = propertyInfoIn.GetGenericArguments().FirstOrDefault();
+                            if (genericArg != null)
+                            {
+                                propertyInfoIn = genericArg;
+                            }
+                        }
+
+                        if (IsNullable(propertyInfoOut))
+                        {
+                            var genericArg = propertyInfoOut.GetGenericArguments().FirstOrDefault();
+                            if (genericArg != null)
+                            {
+                                propertyInfoOut = genericArg;
+                            }
+                        }
+                        
+                        valueTuples.Add((propertyInfoIn, propertyInfoOut)!);
+                        //}
                     }
                     catch (Exception e)
                     {
-                        throw new Exception($"Unable to map {mapIndex.First().IndexName} of object {@in.FullName} <-> {@out.FullName}", e);
+                        throw new Exception($"Unable to map {mapIndex.First().IndexName} of object {_out.FullName} <-> {_in.FullName}", e);
                     }
                 }
             }
 
-            return list;
+            var list = new List<(Type, Type)>();
+            foreach (var field in @out.GetMembers().Where(e => e is PropertyInfo))
+            {
+                InnerForeach(@out, @in, field, list);
+            }
+
+            foreach (var field in @in.GetMembers().Where(e => e is PropertyInfo))
+            {
+                InnerForeach(@in, @out, field, list);
+            }
+
+            return list.DistinctBy(e => e.Item1.FullName).DistinctBy(e => e.Item2.FullName).ToList();
         }
 
 
@@ -250,9 +285,10 @@ namespace RoboMapper
                 }
 
                 var fieldOut = @in.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>()?.IndexName == mapIndex.First().IndexName) as PropertyInfo;
+                Console.Write($"f {propertyInfo.Name} <-> {fieldOut.Name}");
 
-
-                if (CanMapOneToOne(propertyInfo.PropertyType) && CanMapOneToOne(fieldOut.PropertyType))
+                if (CanMapOneToOne(propertyInfo.PropertyType) && CanMapOneToOne(fieldOut.PropertyType)
+                    || IsNullableOneToOne(propertyInfo.PropertyType, fieldOut.PropertyType))
                 {
                     localList.Add(
                         ExpressionStatement(
@@ -271,19 +307,20 @@ namespace RoboMapper
                             )
                         ));
                 }
-                else if (IsNullableKnownType(propertyInfo.PropertyType) || IsNullableKnownType(fieldOut.PropertyType))
+                else if (IsNullable(propertyInfo.PropertyType, fieldOut.PropertyType) && FieldHasCustomerParser(propertyInfo))
                 {
                     var inArguments = propertyInfo.PropertyType.GetGenericArguments();
                     if (inArguments.Length == 0)
                     {
-                        inArguments = new []{propertyInfo.PropertyType};
+                        inArguments = new[] { propertyInfo.PropertyType };
                     }
+
                     var outArguments = fieldOut.PropertyType.GetGenericArguments();
                     if (outArguments.Length == 0)
                     {
-                        outArguments = new []{fieldOut.PropertyType};
+                        outArguments = new[] { fieldOut.PropertyType };
                     }
-                    
+
                     var mapperName = $"_mapper{inArguments[0].Name}to{outArguments[0].Name}";
                     localList.Add(ExpressionStatement(
                         AssignmentExpression(
@@ -316,7 +353,7 @@ namespace RoboMapper
                                                         IdentifierName(field.Name)))))),
                                 LiteralExpression(
                                     SyntaxKind.NullLiteralExpression)))
-                        ));                    
+                    ));
                 }
                 else
                 {
@@ -350,6 +387,8 @@ namespace RoboMapper
                                 )
                         )));
                 }
+
+                Console.WriteLine("");
             }
 
             localList.Add(ReturnStatement(
@@ -384,17 +423,36 @@ namespace RoboMapper
                 );
         }
 
-        private bool IsNullableKnownType(Type type)
+        private bool IsNullableOneToOne(Type a, Type b)
         {
-            var mapIndexable = type.GetCustomAttribute<MapIndex>();
-            //assume for now that it has a mapper
-            //TODO optimize
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
-            {
-                return true;
-            }
+            var nullable = IsNullable(a, b);
+            var aGenerics = a.GetGenericArguments();
+            var bGenerics = b.GetGenericArguments();
+            Console.Write($" n:{nullable}");
+            var typeMatch = aGenerics.FirstOrDefault() == bGenerics.FirstOrDefault();
+            Console.Write($" t:{typeMatch}");
+            return nullable && typeMatch;
+        }
 
-            return false;
+        private bool FieldHasCustomerParser(PropertyInfo type)
+        {
+            var customParser = type.GetCustomAttribute<MapIndex>()?.CustomParser != null;
+            Console.Write($" c:{customParser}");
+            return customParser;
+        }
+
+        private bool IsNullable(Type a)
+        {
+            var aIsNullable = a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Nullable<>) || a == typeof(string);
+            return aIsNullable;
+        }
+
+        private bool IsNullable(Type a, Type b)
+        {
+            var aIsNullable = a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Nullable<>) || a == typeof(string);
+            var bIsNullable = b.IsGenericType && b.GetGenericTypeDefinition() == typeof(Nullable<>) || b == typeof(string);
+            ;
+            return aIsNullable && bIsNullable;
         }
 
         private static bool CanMapOneToOne(Type type) => type == typeof(int)

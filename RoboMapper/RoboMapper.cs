@@ -31,25 +31,23 @@ namespace RoboMapper
 
         private static void TryLoadAssemblyToMappers(CSharpCompilation compilation)
         {
-            using (var ms = new MemoryStream())
+            using var ms = new MemoryStream();
+            var result = compilation.Emit(ms);
+
+            if (!result.Success)
             {
-                var result = compilation.Emit(ms);
+                var failures = result.Diagnostics.Where(diagnostic =>
+                    diagnostic.IsWarningAsError ||
+                    diagnostic.Severity == DiagnosticSeverity.Error);
 
-                if (!result.Success)
+                foreach (var diagnostic in failures)
                 {
-                    var failures = result.Diagnostics.Where(diagnostic =>
-                        diagnostic.IsWarningAsError ||
-                        diagnostic.Severity == DiagnosticSeverity.Error);
-
-                    foreach (var diagnostic in failures)
-                    {
-                        Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
-                    }
+                    Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
                 }
-                else
-                {
-                    LoadGeneratedAssembly(ms);
-                }
+            }
+            else
+            {
+                LoadGeneratedAssembly(ms);
             }
         }
 
