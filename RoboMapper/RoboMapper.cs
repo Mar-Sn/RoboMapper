@@ -22,9 +22,9 @@ namespace RoboMapper
 
             var tasks = GenerateIMappers(dictionary);
 
-            var fullString = string.Join("", tasks.Select(e => e.Result));
+            var fullString = string.Join("", tasks.Select(e => e.Result.Item1));
 
-            var compilation = CreateAssemblyFromString(fullString, assemblies);
+            var compilation = CreateAssemblyFromString(fullString, assemblies, tasks.SelectMany(e => e.Result.Item2).ToList());
 
             TryLoadAssemblyToMappers(compilation);
         }
@@ -51,7 +51,7 @@ namespace RoboMapper
             }
         }
 
-        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies)
+        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies, List<Type> types)
         {
             var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
             
@@ -59,6 +59,11 @@ namespace RoboMapper
             foreach (var assembly in assemblies.Where(e => e.IsDynamic == false && string.IsNullOrWhiteSpace(e.Location) == false))
             {
                 list.Add(MetadataReference.CreateFromFile(assembly.Location));
+            }
+
+            foreach (var type in types)
+            {
+                list.Add(MetadataReference.CreateFromFile(type.Assembly.Location));
             }
             
             var compilation = CSharpCompilation.Create("mapper_generator")
@@ -68,9 +73,9 @@ namespace RoboMapper
             return compilation;
         }
 
-        private static List<Task<string>> GenerateIMappers(Dictionary<string, List<Type>> dictionary)
+        private static List<Task<(string, List<Type>)>> GenerateIMappers(Dictionary<string, List<Type>> dictionary)
         {
-            var tasks = new List<Task<string>>();
+            var tasks = new List<Task<(string, List<Type>)>>();
 
             foreach (var entry in dictionary)
             {

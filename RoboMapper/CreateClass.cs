@@ -13,7 +13,7 @@ namespace RoboMapper
 {
     public class CreateClass
     {
-        public Task<string> Generate(Type @in, Type @out)
+        public Task<(string, List<Type>)> Generate(Type @in, Type @out)
         {
             return Task.Run(() =>
             {
@@ -23,6 +23,11 @@ namespace RoboMapper
                 var innerMappers = GetInnerMappers(@out, @in);
                 var @namespace = NamespaceDeclaration(ParseName("RoboMapper")).NormalizeWhitespace();
                 @namespace = @namespace.AddUsings(UsingDirective(ParseName("System")));
+                foreach (var innerMapper in innerMappers)
+                {
+                    @namespace = @namespace.AddUsings(UsingDirective(ParseName(innerMapper.Item1.Assembly.GetName().Name)));
+                    @namespace = @namespace.AddUsings(UsingDirective(ParseName(innerMapper.Item2.Assembly.GetName().Name)));
+                }
                 var classDeclaration = ClassDeclaration(className);
                 classDeclaration = classDeclaration.AddModifiers(Token(SyntaxKind.PublicKeyword));
 
@@ -57,9 +62,11 @@ namespace RoboMapper
 
                 @namespace = @namespace.AddMembers(classDeclaration);
 
-                return @namespace
+                var types = innerMappers.Select(e => e.Item1).ToList();
+                types.AddRange(innerMappers.Select(e => e.Item2));
+                return (@namespace
                     .NormalizeWhitespace()
-                    .ToFullString();
+                    .ToFullString(), types);
             });
         }
 
@@ -76,7 +83,7 @@ namespace RoboMapper
                         {
                             return
                                 Parameter(
-                                        Identifier(Sanitize($"mapper{e.Item1.FullName}to{e.Item2.FullName}")))
+                                        Identifier(Sanitize($"mapper{e.Item1.Name}to{e.Item2.Name}")))
                                     .WithType(
                                         GenericName(
                                                 Identifier("IMapper"))
@@ -116,7 +123,7 @@ namespace RoboMapper
                         .WithVariables(
                             SingletonSeparatedList(
                                 VariableDeclarator(
-                                    Identifier(Sanitize($"_mapper{e.Item1.FullName}to{e.Item2.FullName}"))))));
+                                    Identifier(Sanitize($"_mapper{e.Item1.Name}to{e.Item2.Name}"))))));
             }));
 
             members.AddRange(l.Select(e =>
@@ -137,7 +144,7 @@ namespace RoboMapper
                         .WithVariables(
                             SingletonSeparatedList(
                                 VariableDeclarator(
-                                    Identifier(Sanitize($"_mapper{e.Item2.FullName}to{e.Item1.FullName}"))))));
+                                    Identifier(Sanitize($"_mapper{e.Item2.Name}to{e.Item1.Name}"))))));
             }));
         }
 
@@ -322,38 +329,14 @@ namespace RoboMapper
                     }
 
                     var mapperName = $"_mapper{inArguments[0].Name}to{outArguments[0].Name}";
-                    localList.Add(ExpressionStatement(
-                        AssignmentExpression(
-                            SyntaxKind.SimpleAssignmentExpression,
-                            MemberAccessExpression(
-                                SyntaxKind.SimpleMemberAccessExpression,
-                                IdentifierName("m"),
-                                IdentifierName(field.Name)),
-                            ConditionalExpression(
-                                BinaryExpression(
-                                    SyntaxKind.NotEqualsExpression,
-                                    MemberAccessExpression(
-                                        SyntaxKind.SimpleMemberAccessExpression,
-                                        IdentifierName("obj"),
-                                        IdentifierName(field.Name)),
-                                    LiteralExpression(
-                                        SyntaxKind.NullLiteralExpression)),
-                                InvocationExpression(
-                                        MemberAccessExpression(
-                                            SyntaxKind.SimpleMemberAccessExpression,
-                                            IdentifierName(mapperName),
-                                            IdentifierName("Map")))
-                                    .WithArgumentList(
-                                        ArgumentList(
-                                            SingletonSeparatedList<ArgumentSyntax>(
-                                                Argument(
-                                                    MemberAccessExpression(
-                                                        SyntaxKind.SimpleMemberAccessExpression,
-                                                        IdentifierName("obj"),
-                                                        IdentifierName(field.Name)))))),
-                                LiteralExpression(
-                                    SyntaxKind.NullLiteralExpression)))
-                    ));
+                    if (IsNullable(fieldOut.PropertyType) && fieldOut.PropertyType != typeof(string))
+                    {
+                        localList.Add(GenerateNullableAssignmentWithValue(field, mapperName));
+                    }
+                    else
+                    {
+                        localList.Add(GenerateNullableAssignment(field, mapperName));
+                    }
                 }
                 else
                 {
@@ -421,6 +404,81 @@ namespace RoboMapper
                         localList
                     )
                 );
+        }
+
+        private static ExpressionStatementSyntax GenerateNullableAssignment(MemberInfo field, string mapperName)
+        {
+            return ExpressionStatement(
+                AssignmentExpression(
+                    SyntaxKind.SimpleAssignmentExpression,
+                    MemberAccessExpression(
+                        SyntaxKind.SimpleMemberAccessExpression,
+                        IdentifierName("m"),
+                        IdentifierName(field.Name)),
+                    ConditionalExpression(
+                        BinaryExpression(
+                            SyntaxKind.NotEqualsExpression,
+                            MemberAccessExpression(
+                                SyntaxKind.SimpleMemberAccessExpression,
+                                IdentifierName("obj"),
+                                IdentifierName(field.Name)),
+                            LiteralExpression(
+                                SyntaxKind.NullLiteralExpression)),
+                        InvocationExpression(
+                                MemberAccessExpression(
+                                    SyntaxKind.SimpleMemberAccessExpression,
+                                    IdentifierName(mapperName),
+                                    IdentifierName("Map")))
+                            .WithArgumentList(
+                                ArgumentList(
+                                    SingletonSeparatedList(
+                                        Argument(
+                                            MemberAccessExpression(
+                                                SyntaxKind.SimpleMemberAccessExpression,
+                                                IdentifierName("obj"),
+                                                IdentifierName(field.Name)))))),
+                        LiteralExpression(
+                            SyntaxKind.NullLiteralExpression)))
+            );
+        }
+        
+        private static ExpressionStatementSyntax GenerateNullableAssignmentWithValue(MemberInfo field, string mapperName)
+        {
+            return ExpressionStatement(
+                AssignmentExpression(
+                    SyntaxKind.SimpleAssignmentExpression,
+                    MemberAccessExpression(
+                        SyntaxKind.SimpleMemberAccessExpression,
+                        IdentifierName("m"),
+                        IdentifierName(field.Name)),
+                    ConditionalExpression(
+                        BinaryExpression(
+                            SyntaxKind.NotEqualsExpression,
+                            MemberAccessExpression(
+                                SyntaxKind.SimpleMemberAccessExpression,
+                                IdentifierName("obj"),
+                                IdentifierName(field.Name)),
+                            LiteralExpression(
+                                SyntaxKind.NullLiteralExpression)),
+                        InvocationExpression(
+                                MemberAccessExpression(
+                                    SyntaxKind.SimpleMemberAccessExpression,
+                                    IdentifierName(mapperName),
+                                    IdentifierName("Map")))
+                            .WithArgumentList(
+                                ArgumentList(
+                                    SingletonSeparatedList(
+                                        Argument(
+                                            MemberAccessExpression(
+                                                SyntaxKind.SimpleMemberAccessExpression,
+                                                MemberAccessExpression(
+                                                    SyntaxKind.SimpleMemberAccessExpression,
+                                                    IdentifierName("obj"),
+                                                    IdentifierName(field.Name)),
+                                                IdentifierName("Value")))))),
+                        LiteralExpression(
+                            SyntaxKind.NullLiteralExpression)))
+            );
         }
 
         private bool IsNullableOneToOne(Type a, Type b)
