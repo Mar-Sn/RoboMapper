@@ -19,6 +19,8 @@ namespace RoboMapper
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
             var dictionary = FindMappables(assemblies);
+            
+            FindParsers(assemblies);
 
             var tasks = GenerateIMappers(dictionary);
 
@@ -111,6 +113,19 @@ namespace RoboMapper
             }
 
             return dictionary;
+        }
+        
+        private static void FindParsers(Assembly[] assemblies)
+        {
+            foreach (var assembly in assemblies)
+            {
+                var mps = assembly.GetTypes().Where(e => e.GetCustomAttribute<MapParser>() != null);
+
+                foreach (var @type in mps)
+                {
+                    Mappers.TryAdd(type.GetInterfaces().Where(e => e.Name.Contains("IMapper")).FirstOrDefault(), Activator.CreateInstance(type));
+                }
+            }
         }
 
         private static void LoadGeneratedAssembly(MemoryStream ms)
