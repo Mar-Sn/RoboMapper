@@ -13,6 +13,7 @@ namespace RoboMapper
 {
     public class CreateClass
     {
+        
         public Task<(string, List<Type>)> Generate(Type @in, Type @out)
         {
             return Task.Run(() =>
@@ -21,6 +22,7 @@ namespace RoboMapper
                 var className = "Mapped" + Guid.NewGuid().ToString().Replace("-", "");
 
                 var innerMappers = GetInnerMappers(@out, @in);
+                
                 var @namespace = NamespaceDeclaration(ParseName("RoboMapper")).NormalizeWhitespace();
                 @namespace = @namespace.AddUsings(UsingDirective(ParseName("System")));
                 foreach (var innerMapper in innerMappers)
@@ -38,19 +40,16 @@ namespace RoboMapper
                 {
                     AddFields(members, innerMappers);
 
-                    var assignments = innerMappers.Select(e => ExpressionStatement(
+                    var uniqueFields = innerMappers.Select(e => $"mapper{e.Item1.Name}to{e.Item2.Name}").ToList();
+                    uniqueFields.AddRange(innerMappers.Select(e => $"mapper{e.Item2.Name}to{e.Item1.Name}"));
+                    uniqueFields = uniqueFields.Distinct().ToList();
+                    
+                    var assignments = uniqueFields.Select(e => ExpressionStatement(
                         AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
-                            IdentifierName(Sanitize($"_mapper{e.Item1.Name}to{e.Item2.Name}")),
-                            IdentifierName(Sanitize($"mapper{e.Item1.Name}to{e.Item2.Name}"))))
+                            IdentifierName(Sanitize($"_{e}")),
+                            IdentifierName(Sanitize(e))))
                     ).ToList();
-
-                    assignments.AddRange(innerMappers.Select(e => ExpressionStatement(
-                        AssignmentExpression(
-                            SyntaxKind.SimpleAssignmentExpression,
-                            IdentifierName(Sanitize($"_mapper{e.Item2.Name}to{e.Item1.Name}")),
-                            IdentifierName(Sanitize($"mapper{e.Item1.Name}to{e.Item2.Name}"))))
-                    ));
 
                     AddConstructor(members, className, innerMappers, assignments);
                 }
