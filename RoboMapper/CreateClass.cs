@@ -7,13 +7,13 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using RoboMapper.Roslyn;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace RoboMapper
 {
     public class CreateClass
     {
-        
         public Task<(string, List<Type>)> Generate(Type @in, Type @out)
         {
             return Task.Run(() =>
@@ -22,6 +22,12 @@ namespace RoboMapper
                 var className = "Mapped" + Guid.NewGuid().ToString().Replace("-", "");
 
                 var innerMappers = GetInnerMappers(@out, @in);
+
+                var fields = innerMappers.Select(e => new Field
+                {
+                    A = e.Item1,
+                    B = e.Item2
+                }).ToList();
                 
                 var @namespace = NamespaceDeclaration(ParseName("RoboMapper")).NormalizeWhitespace();
                 @namespace = @namespace.AddUsings(UsingDirective(ParseName("System")));
@@ -30,6 +36,7 @@ namespace RoboMapper
                     @namespace = @namespace.AddUsings(UsingDirective(ParseName(innerMapper.Item1.Assembly.GetName().Name)));
                     @namespace = @namespace.AddUsings(UsingDirective(ParseName(innerMapper.Item2.Assembly.GetName().Name)));
                 }
+
                 var classDeclaration = ClassDeclaration(className);
                 classDeclaration = classDeclaration.AddModifiers(Token(SyntaxKind.PublicKeyword));
 
@@ -43,7 +50,7 @@ namespace RoboMapper
                     var uniqueFields = innerMappers.Select(e => $"mapper{e.Item1.Name}to{e.Item2.Name}").ToList();
                     uniqueFields.AddRange(innerMappers.Select(e => $"mapper{e.Item2.Name}to{e.Item1.Name}"));
                     uniqueFields = uniqueFields.Distinct().ToList();
-                    
+
                     var assignments = uniqueFields.Select(e => ExpressionStatement(
                         AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
@@ -147,7 +154,7 @@ namespace RoboMapper
             }));
         }
 
-        private string Sanitize(string str)
+        public static string Sanitize(string str)
         {
             return str
                 .Replace(" ", "")
@@ -216,7 +223,7 @@ namespace RoboMapper
                                 propertyInfoOut = genericArg;
                             }
                         }
-                        
+
                         valueTuples.Add((propertyInfoIn, propertyInfoOut)!);
                         //}
                     }
@@ -313,7 +320,7 @@ namespace RoboMapper
                             )
                         ));
                 }
-                else if (IsNullable(propertyInfo.PropertyType, fieldOut.PropertyType) && FieldHasCustomerParser(propertyInfo))
+                else if (IsNullable(propertyInfo.PropertyType, fieldOut.PropertyType) && FieldHasCustomerParser(propertyInfo.PropertyType))
                 {
                     var inArguments = propertyInfo.PropertyType.GetGenericArguments();
                     if (inArguments.Length == 0)
@@ -440,7 +447,7 @@ namespace RoboMapper
                             SyntaxKind.NullLiteralExpression)))
             );
         }
-        
+
         private static ExpressionStatementSyntax GenerateNullableAssignmentWithValue(MemberInfo field, string mapperName)
         {
             return ExpressionStatement(
@@ -491,20 +498,20 @@ namespace RoboMapper
             return nullable && typeMatch;
         }
 
-        private bool FieldHasCustomerParser(PropertyInfo type)
+        public static bool FieldHasCustomerParser(Type type)
         {
             var customParser = type.GetCustomAttribute<MapIndex>()?.CustomParser != null;
             Console.Write($" c:{customParser}");
             return customParser;
         }
 
-        private bool IsNullable(Type a)
+        public static bool IsNullable(Type a)
         {
             var aIsNullable = a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Nullable<>) || a == typeof(string);
             return aIsNullable;
         }
 
-        private bool IsNullable(Type a, Type b)
+        public static bool IsNullable(Type a, Type b)
         {
             var aIsNullable = a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Nullable<>) || a == typeof(string);
             var bIsNullable = b.IsGenericType && b.GetGenericTypeDefinition() == typeof(Nullable<>) || b == typeof(string);
@@ -512,7 +519,7 @@ namespace RoboMapper
             return aIsNullable && bIsNullable;
         }
 
-        private static bool CanMapOneToOne(Type type) => type == typeof(int)
+        public static bool CanMapOneToOne(Type type) => type == typeof(int)
                                                          || type == typeof(double)
                                                          || type == typeof(DateTime)
                                                          || type == typeof(DateTimeOffset)

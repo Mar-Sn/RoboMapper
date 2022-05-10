@@ -6,6 +6,11 @@ namespace RoboMapper.Roslyn
     public class Using
     {
         public string Name { get; set; } = null!;
+        
+        public Using(string name)
+        {
+            Name = name;
+        }
 
         public UsingDirectiveSyntax Generate()
         {

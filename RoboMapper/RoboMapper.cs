@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using RoboMapper.Roslyn;
 
 namespace RoboMapper
 {
@@ -24,6 +25,13 @@ namespace RoboMapper
 
             var tasks = GenerateIMappers(dictionary);
 
+            var nameSpace = new Namespace
+            {
+                Classes = dictionary.Values.Select(e => new GenerateIMapper(e[0], e[1])).ToList()
+            };
+
+            var generated = nameSpace.Generate().ToFullString();
+            
             var fullString = string.Join("", tasks.Select(e => e.Result.Item1));
 
             var compilation = CreateAssemblyFromString(fullString, assemblies, tasks.SelectMany(e => e.Result.Item2).ToList());

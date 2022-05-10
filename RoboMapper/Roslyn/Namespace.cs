@@ -8,15 +8,24 @@ namespace RoboMapper.Roslyn
 {
     public class Namespace
     {
-        public List<Clazz> Classes { get; set; } = new List<Clazz>();
+        public List<GenerateIMapper> Classes { get; set; } = new List<GenerateIMapper>();
         public List<Using> Usings { get; set; } = new List<Using>();
 
+        private NamespaceDeclarationSyntax? _namespaceDeclarationSyntax;
         public NamespaceDeclarationSyntax Generate()
         {
-            var @namespace = NamespaceDeclaration(ParseName("RoboMapper")).NormalizeWhitespace();
-            @namespace.AddUsings(Usings.Select(e => e.Generate()).ToArray());
-            @namespace.AddMembers(Classes.Select(e => e.Generate()).ToArray());
-            return @namespace;
+            if (_namespaceDeclarationSyntax != null) return _namespaceDeclarationSyntax;
+            
+            _namespaceDeclarationSyntax = NamespaceDeclaration(ParseName("RoboMapper")).NormalizeWhitespace();
+            _namespaceDeclarationSyntax.AddUsings(Usings.Select(e => e.Generate()).ToArray());
+            _namespaceDeclarationSyntax.AddMembers(Classes.Select(e => e.Generate()).ToArray());
+
+            return _namespaceDeclarationSyntax;
+        }
+
+        public override string ToString()
+        {
+            return Generate().ToFullString();
         }
     }
 }
