@@ -16,16 +16,18 @@ namespace RoboMapper.Roslyn
         {
             if (_namespaceDeclarationSyntax != null) return _namespaceDeclarationSyntax;
             
-            _namespaceDeclarationSyntax = NamespaceDeclaration(ParseName("RoboMapper")).NormalizeWhitespace();
-            _namespaceDeclarationSyntax.AddUsings(Usings.Select(e => e.Generate()).ToArray());
-            _namespaceDeclarationSyntax.AddMembers(Classes.Select(e => e.Generate()).ToArray());
+            _namespaceDeclarationSyntax = NamespaceDeclaration(ParseName("RoboMapper"));
+            _namespaceDeclarationSyntax = _namespaceDeclarationSyntax.AddUsings(Usings.Select(e => e.Generate()).ToArray());
+            var classes = Classes.Select(e => e.Generate());
+            var classesStrings = classes.Select(e => e.ToFullString());
+            _namespaceDeclarationSyntax = _namespaceDeclarationSyntax.AddMembers(classes.ToArray());
 
             return _namespaceDeclarationSyntax;
         }
 
         public override string ToString()
         {
-            return Generate().ToFullString();
+            return Generate().NormalizeWhitespace().ToFullString();
         }
     }
 }

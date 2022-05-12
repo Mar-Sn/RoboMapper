@@ -515,7 +515,6 @@ namespace RoboMapper
         {
             var aIsNullable = a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Nullable<>) || a == typeof(string);
             var bIsNullable = b.IsGenericType && b.GetGenericTypeDefinition() == typeof(Nullable<>) || b == typeof(string);
-            ;
             return aIsNullable && bIsNullable;
         }
 

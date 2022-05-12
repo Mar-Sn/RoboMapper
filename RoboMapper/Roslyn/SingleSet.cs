@@ -1,4 +1,6 @@
-﻿using System.Reflection;
+﻿using System;
+using System.Reflection;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
@@ -24,29 +26,47 @@ namespace RoboMapper.Roslyn
 
         public StatementSyntax Generate()
         {
-            if (CanMapOneToOne(A, B) || CanMapNullableOneToOne(A, B))
+            var canMapOneToOne = CanMapOneToOne();
+            var canMapNullableOneToOne = CanMapNullableOneToOne(A, B);
+            if (canMapOneToOne || canMapNullableOneToOne)
             {
                 return SimpleOneToOne();
             }
 
-            if (CreateClass.IsNullable(A.DeclaringType!, B.DeclaringType!) && CreateClass.FieldHasCustomerParser(B.DeclaringType!))
+            var isNullable = IsNullable();
+            var fieldHasCustomerParser = FieldHasCustomerParser();
+            if (isNullable && fieldHasCustomerParser)
             {
                 return NullableWithMapper();
             }
 
             return WithMapper();
         }
+        
+        private bool FieldHasCustomerParser()
+        {
+            var customParserA = PropertyInfoA.GetCustomAttribute<MapIndex>()?.CustomParser != null;
+            var customParserB = PropertyInfoB.GetCustomAttribute<MapIndex>()?.CustomParser != null;
+            return customParserA || customParserB;
+        }
+        
+        private bool IsNullable()
+        {
+            var aIsNullable = PropertyInfoA.PropertyType.IsGenericType && PropertyInfoA.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>);
+            var bIsNullable = PropertyInfoB.PropertyType.IsGenericType && PropertyInfoB.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>);
+            return aIsNullable || bIsNullable;
+        }
 
         private bool CanMapNullableOneToOne(MemberInfo memberInfo, MemberInfo memberInfo1)
         {
             return CreateClass.IsNullable(memberInfo.DeclaringType!) 
                    && CreateClass.IsNullable(memberInfo1.DeclaringType!) 
-                   && CanMapOneToOne(memberInfo, memberInfo1);
+                   && CanMapOneToOne();
         }
 
-        private bool CanMapOneToOne(MemberInfo memberInfo, MemberInfo memberInfo1)
+        private bool CanMapOneToOne()
         {
-            return memberInfo.DeclaringType == memberInfo1.DeclaringType;
+            return PropertyInfoA.PropertyType == PropertyInfoB.PropertyType;
         }
 
         private StatementSyntax WithMapper()
@@ -97,7 +117,7 @@ namespace RoboMapper.Roslyn
             }
 
             var mapperName = CreateClass.Sanitize($"_mapper{A.Name}to{B.Name}");
-            if (CreateClass.IsNullable(A.DeclaringType!) && PropertyInfoB.PropertyType != typeof(string))
+            if (IsNullable() && PropertyInfoB.PropertyType != typeof(string))
             {
                 return GenerateNullableAssignmentWithValue(A);
             }
@@ -197,6 +217,11 @@ namespace RoboMapper.Roslyn
                     )
                 )
             );
+        }
+
+        public override string ToString()
+        {
+            return Generate().NormalizeWhitespace().ToFullString();
         }
     }
 }

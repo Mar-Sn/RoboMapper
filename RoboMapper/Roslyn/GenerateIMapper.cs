@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
@@ -84,11 +85,14 @@ namespace RoboMapper.Roslyn
         public ClassDeclarationSyntax Generate()
         {
             var clazz = ClassDeclaration(Name);
-            clazz.AddBaseListTypes(MapperInterface.Generate());
-            clazz.AddModifiers(Token(SyntaxKind.PublicKeyword));
-            clazz.AddMembers(Fields.Select(e => e.Generate()).ToArray());
-            clazz.AddMembers(Contructor.Generate());
-            clazz.AddMembers(Methods.Select(e => e.Generate()).ToArray());
+            clazz = clazz.AddBaseListTypes(MapperInterface.Generate());
+            clazz = clazz.AddModifiers(Token(SyntaxKind.PublicKeyword));
+            var members = new List<MemberDeclarationSyntax>();
+            members.AddRange(Fields.Select(e => e.Generate()));
+            members.Add(Contructor.Generate());
+            members.AddRange(Methods.Select(e => e.Generate()));
+            
+            clazz = clazz.AddMembers(members.ToArray());
             return clazz;
         }
 
@@ -182,6 +186,11 @@ namespace RoboMapper.Roslyn
         public Field GetMapper(MemberInfo a, MemberInfo b)
         {
             return Fields.Single(e => e.A == a.DeclaringType && e.B == b.DeclaringType);
+        }
+
+        public override string ToString()
+        {
+            return Generate().NormalizeWhitespace().ToFullString();
         }
     }
 }
