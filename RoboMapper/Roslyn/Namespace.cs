@@ -11,7 +11,7 @@ namespace RoboMapper.Roslyn
         private const string Name = "RoboMapper";
         public List<GenerateIMapper> Classes { get; set; } = new List<GenerateIMapper>();
 
-        public HashSet<string?> AllKnownTypes = new HashSet<string?>();
+        public HashSet<Type> AllKnownTypes = new HashSet<Type>();
         private List<Using> Usings { get; } = new List<Using>();
 
         public NamespaceDeclarationSyntax Generate()
@@ -21,7 +21,7 @@ namespace RoboMapper.Roslyn
             namespaceDeclarationSyntax = namespaceDeclarationSyntax.AddMembers(classes.ToArray());
             foreach (var allKnownType in AllKnownTypes)
             {
-                if (allKnownType != null) Usings.Add(new Using(allKnownType));
+                if (allKnownType != null) Usings.Add(new Using(allKnownType.Namespace));
             }
             namespaceDeclarationSyntax = namespaceDeclarationSyntax.AddUsings(Usings.Select(e => e.Generate()).ToArray());
             return namespaceDeclarationSyntax;

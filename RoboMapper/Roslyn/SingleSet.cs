@@ -29,8 +29,8 @@ namespace RoboMapper.Roslyn
         public StatementSyntax Generate()
         {
             var types = GetBaseTypeIfNullable();
-            _generateMapper.Namespace.AllKnownTypes.Add(types.Item1.Namespace);
-            _generateMapper.Namespace.AllKnownTypes.Add(types.Item2.Namespace);
+            _generateMapper.Namespace.AllKnownTypes.Add(types.Item1);
+            _generateMapper.Namespace.AllKnownTypes.Add(types.Item2);
             var canMapOneToOne = CanMapOneToOne();
             var canMapNullableOneToOne = CanMapNullableOneToOne(In, Out);
             if (canMapOneToOne || canMapNullableOneToOne)
@@ -159,7 +159,7 @@ namespace RoboMapper.Roslyn
                 outArguments = new[] { PropertyInfoOut.PropertyType };
             }
 
-            if (IsNullable() && PropertyInfoOut.PropertyType != typeof(string))
+            if (IsNullable() && PropertyInfoIn.PropertyType != typeof(string))
             {
                 return GenerateNullableAssignmentWithValue(inArguments.First(), outArguments.First());
             }
@@ -265,7 +265,7 @@ namespace RoboMapper.Roslyn
                                                 MemberAccessExpression(
                                                     SyntaxKind.SimpleMemberAccessExpression,
                                                     IdentifierName("obj"),
-                                                    IdentifierName(Out.Name)),
+                                                    IdentifierName(In.Name)),
                                                 IdentifierName("Value")))))),
                         LiteralExpression(
                             SyntaxKind.NullLiteralExpression)))

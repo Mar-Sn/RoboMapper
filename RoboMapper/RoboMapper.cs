@@ -32,7 +32,7 @@ namespace RoboMapper
 
             var generated = nameSpace.Generate().NormalizeWhitespace().ToFullString();
 
-            var compilation = CreateAssemblyFromString(generated, assemblies);
+            var compilation = CreateAssemblyFromString(generated, assemblies, nameSpace.AllKnownTypes);
 
             TryLoadAssemblyToMappers(compilation);
         }
@@ -50,18 +50,16 @@ namespace RoboMapper
 
                 foreach (var diagnostic in failures)
                 {
-                    Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
+                    Logger.LogError("{diagnostic.Id}: {diagnostic.GetMessage()}", diagnostic.Id, diagnostic.GetMessage());
                 }
 
                 throw new Exception("RoboMapper is not able to compile classes");
             }
-            else
-            {
-                LoadGeneratedAssembly(ms);
-            }
+
+            LoadGeneratedAssembly(ms);
         }
 
-        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies)
+        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies, IEnumerable<Type> usings)
         {
             var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
 
@@ -71,10 +69,10 @@ namespace RoboMapper
                 list.Add(MetadataReference.CreateFromFile(assembly.Location));
             }
 
-            // foreach (var type in types)
-            // {
-            //     list.Add(MetadataReference.CreateFromFile(type.Assembly.Location));
-            // }
+            foreach (var type in usings)
+            {
+                list.Add(MetadataReference.CreateFromFile(type.Assembly.Location));
+            }
 
             var compilation = CSharpCompilation.Create("mapper_generator")
                 .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
