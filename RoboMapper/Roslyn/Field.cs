@@ -11,8 +11,14 @@ namespace RoboMapper.Roslyn
         public Type A { get; set; }
         public Type B { get; set; }
 
-        public string Name => CreateClass.Sanitize($"_mapper{A.FullName}to{B.FullName}"); 
-        
+        public string Name => RoboHelper.Sanitize($"_mapper{A.FullName}to{B.FullName}");
+
+        public Field(Type a, Type b)
+        {
+            A = a;
+            B = b;
+        }
+
         public FieldDeclarationSyntax Generate()
         {
             return FieldDeclaration(
@@ -33,5 +39,7 @@ namespace RoboMapper.Roslyn
                             VariableDeclarator(
                                 Identifier(Name)))));
         }
+
+        public override string ToString() => Name;
     }
 }

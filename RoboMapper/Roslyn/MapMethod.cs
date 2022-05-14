@@ -45,7 +45,7 @@ namespace RoboMapper.Roslyn
                                     .WithInitializer(
                                         EqualsValueClause(
                                             ObjectCreationExpression(
-                                                    IdentifierName(ReturnType.FullName)
+                                                    IdentifierName(ReturnType.FullName!)
                                                 )
                                                 .WithArgumentList(
                                                     ArgumentList()
@@ -56,11 +56,11 @@ namespace RoboMapper.Roslyn
                         )
                 )
             };
-            
+
             localList.AddRange(SingleSets.Select(e => e.Generate()));
-            
+
             return MethodDeclaration(
-                    IdentifierName(ReturnType.FullName),
+                    IdentifierName(ReturnType.FullName!),
                     Identifier("Map")
                 )
                 .WithModifiers(
@@ -75,7 +75,7 @@ namespace RoboMapper.Roslyn
                                     Identifier("obj")
                                 )
                                 .WithType(
-                                    IdentifierName(Argument.FullName)
+                                    IdentifierName(Argument.FullName!)
                                 )
                         )
                     )

@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Linq;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.Extensions.Logging;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace RoboMapper.Roslyn
@@ -10,26 +12,30 @@ namespace RoboMapper.Roslyn
     public class SingleSet
     {
         private readonly GenerateIMapper _generateMapper;
-        public MemberInfo A { get; }
+        public MemberInfo In { get; }
 
-        private PropertyInfo PropertyInfoA => (A as PropertyInfo)!;
-        public MemberInfo B { get; }
+        private PropertyInfo PropertyInfoIn => (In as PropertyInfo)!;
+        public MemberInfo Out { get; }
 
-        private PropertyInfo PropertyInfoB => (B as PropertyInfo)!;
+        private PropertyInfo PropertyInfoOut => (Out as PropertyInfo)!;
         
-        public SingleSet(GenerateIMapper generateMapper, MemberInfo a, MemberInfo b)
+        public SingleSet(GenerateIMapper generateMapper, MemberInfo @in, MemberInfo @out)
         {
             _generateMapper = generateMapper;
-            A = a;
-            B = b;
+            In = @in;
+            Out = @out;
         }
 
         public StatementSyntax Generate()
         {
+            var types = GetBaseTypeIfNullable();
+            _generateMapper.Namespace.AllKnownTypes.Add(types.Item1);
+            _generateMapper.Namespace.AllKnownTypes.Add(types.Item2);
             var canMapOneToOne = CanMapOneToOne();
-            var canMapNullableOneToOne = CanMapNullableOneToOne(A, B);
+            var canMapNullableOneToOne = CanMapNullableOneToOne(In, Out);
             if (canMapOneToOne || canMapNullableOneToOne)
             {
+                RoboMapper.Logger.LogDebug("Class: {_generateMapper.Name} Can map field {A.Name} to {B.Name} one-to-one", _generateMapper.Name, In.Name, Out.Name);
                 return SimpleOneToOne();
             }
 
@@ -37,6 +43,8 @@ namespace RoboMapper.Roslyn
             var fieldHasCustomerParser = FieldHasCustomerParser();
             if (isNullable && fieldHasCustomerParser)
             {
+                RoboMapper.Logger.LogDebug("Class: {_generateMapper.Name} Field has custom parser {A.Name} to {B.Name}", _generateMapper.Name, In.Name, Out.Name);
+
                 return NullableWithMapper();
             }
 
@@ -45,44 +53,62 @@ namespace RoboMapper.Roslyn
         
         private bool FieldHasCustomerParser()
         {
-            var customParserA = PropertyInfoA.GetCustomAttribute<MapIndex>()?.CustomParser != null;
-            var customParserB = PropertyInfoB.GetCustomAttribute<MapIndex>()?.CustomParser != null;
+            var customParserA = PropertyInfoIn.GetCustomAttribute<MapIndex>()?.CustomParser != null;
+            var customParserB = PropertyInfoOut.GetCustomAttribute<MapIndex>()?.CustomParser != null;
             return customParserA || customParserB;
         }
         
         private bool IsNullable()
         {
-            var aIsNullable = PropertyInfoA.PropertyType.IsGenericType && PropertyInfoA.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>);
-            var bIsNullable = PropertyInfoB.PropertyType.IsGenericType && PropertyInfoB.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>);
+            var aIsNullable = PropertyInfoIn.PropertyType.IsGenericType && PropertyInfoIn.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>);
+            var bIsNullable = PropertyInfoOut.PropertyType.IsGenericType && PropertyInfoOut.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>);
             return aIsNullable || bIsNullable;
         }
 
         private bool CanMapNullableOneToOne(MemberInfo memberInfo, MemberInfo memberInfo1)
         {
-            return CreateClass.IsNullable(memberInfo.DeclaringType!) 
-                   && CreateClass.IsNullable(memberInfo1.DeclaringType!) 
+            return RoboHelper.IsNullable(memberInfo.DeclaringType!) 
+                   && RoboHelper.IsNullable(memberInfo1.DeclaringType!) 
+                   && CanMapOneToOne();
+        }
+        
+        private bool CanMapNullableOneToOne(Type a, Type b)
+        {
+            return RoboHelper.IsNullable(a) 
+                   && RoboHelper.IsNullable(b) 
                    && CanMapOneToOne();
         }
 
         private bool CanMapOneToOne()
         {
-            return PropertyInfoA.PropertyType == PropertyInfoB.PropertyType;
+            return PropertyInfoIn.PropertyType == PropertyInfoOut.PropertyType;
+        }
+        private bool CanMapOneToOne(Type a, Type b)
+        {
+            return a == b;
         }
 
         private StatementSyntax WithMapper()
         {
+            var args = GetBaseTypeIfNullable();
+            var mapper = IncludeInnerMapperIfNeeded(args.Item1, args.Item2);
+            if (mapper == null)
+            {
+                throw new Exception("Mapper could not be included");
+            }
+
             return ExpressionStatement(
                 AssignmentExpression(
                     SyntaxKind.SimpleAssignmentExpression,
                     MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
                         IdentifierName("m"),
-                        IdentifierName(B.Name)
+                        IdentifierName(Out.Name)
                     ),
                     InvocationExpression(
                             MemberAccessExpression(
                                 SyntaxKind.SimpleMemberAccessExpression,
-                                IdentifierName(CreateClass.Sanitize($"_mapper{PropertyInfoA.PropertyType.Name}to{PropertyInfoB.PropertyType.Name}")),
+                                IdentifierName(mapper.Name),
                                 IdentifierName("Map")
                             )
                         )
@@ -93,7 +119,7 @@ namespace RoboMapper.Roslyn
                                         MemberAccessExpression(
                                             SyntaxKind.SimpleMemberAccessExpression,
                                             IdentifierName("obj"),
-                                            IdentifierName(A.Name)
+                                            IdentifierName(In.Name)
                                         )
                                     )
                                 )
@@ -102,51 +128,72 @@ namespace RoboMapper.Roslyn
                 ));
         }
 
-        private StatementSyntax NullableWithMapper()
+        private (Type, Type) GetBaseTypeIfNullable()
         {
-            var inArguments = PropertyInfoA.PropertyType.GetGenericArguments();
+            var inArguments = PropertyInfoIn.PropertyType.GetGenericArguments();
             if (inArguments.Length == 0)
             {
-                inArguments = new[] { PropertyInfoA.PropertyType };
+                inArguments = new[] { PropertyInfoIn.PropertyType };
             }
 
-            var outArguments = PropertyInfoB.PropertyType.GetGenericArguments();
+            var outArguments = PropertyInfoOut.PropertyType.GetGenericArguments();
             if (outArguments.Length == 0)
             {
-                outArguments = new[] { PropertyInfoB.PropertyType };
+                outArguments = new[] { PropertyInfoOut.PropertyType };
             }
 
-            var mapperName = CreateClass.Sanitize($"_mapper{A.Name}to{B.Name}");
-            if (IsNullable() && PropertyInfoB.PropertyType != typeof(string))
-            {
-                return GenerateNullableAssignmentWithValue(A);
-            }
-
-            return GenerateNullableAssignment(A);
+            return (inArguments.First(), outArguments.First());
         }
 
-        private ExpressionStatementSyntax GenerateNullableAssignment(MemberInfo field)
+        private StatementSyntax NullableWithMapper()
         {
+            var inArguments = PropertyInfoIn.PropertyType.GetGenericArguments();
+            if (inArguments.Length == 0)
+            {
+                inArguments = new[] { PropertyInfoIn.PropertyType };
+            }
+
+            var outArguments = PropertyInfoOut.PropertyType.GetGenericArguments();
+            if (outArguments.Length == 0)
+            {
+                outArguments = new[] { PropertyInfoOut.PropertyType };
+            }
+
+            if (IsNullable() && PropertyInfoOut.PropertyType != typeof(string))
+            {
+                return GenerateNullableAssignmentWithValue(inArguments.First(), outArguments.First());
+            }
+
+            return GenerateNullableAssignment(inArguments.First(), outArguments.First());
+        }
+
+        private ExpressionStatementSyntax GenerateNullableAssignment(Type a, Type b)
+        {
+            var mapper = IncludeInnerMapperIfNeeded(a, b);
+            if (mapper == null)
+            {
+                throw new Exception("Mapper could not be included");
+            }
             return ExpressionStatement(
                 AssignmentExpression(
                     SyntaxKind.SimpleAssignmentExpression,
                     MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
                         IdentifierName("m"),
-                        IdentifierName(field.Name)),
+                        IdentifierName(Out.Name)),
                     ConditionalExpression(
                         BinaryExpression(
                             SyntaxKind.NotEqualsExpression,
                             MemberAccessExpression(
                                 SyntaxKind.SimpleMemberAccessExpression,
                                 IdentifierName("obj"),
-                                IdentifierName(field.Name)),
+                                IdentifierName(In.Name)),
                             LiteralExpression(
                                 SyntaxKind.NullLiteralExpression)),
                         InvocationExpression(
                                 MemberAccessExpression(
                                     SyntaxKind.SimpleMemberAccessExpression,
-                                    IdentifierName(_generateMapper.GetMapper(A, B).Name),
+                                    IdentifierName(mapper.Name),
                                     IdentifierName("Map")))
                             .WithArgumentList(
                                 ArgumentList(
@@ -155,34 +202,59 @@ namespace RoboMapper.Roslyn
                                             MemberAccessExpression(
                                                 SyntaxKind.SimpleMemberAccessExpression,
                                                 IdentifierName("obj"),
-                                                IdentifierName(field.Name)))))),
+                                                IdentifierName(In.Name)))))),
                         LiteralExpression(
                             SyntaxKind.NullLiteralExpression)))
             );
         }
 
-        private ExpressionStatementSyntax GenerateNullableAssignmentWithValue(MemberInfo field)
+        private Field? IncludeInnerMapperIfNeeded(Type @in, Type @out)
         {
+            var mapper = _generateMapper.GetMapper(@in, @out) ?? _generateMapper.GetMapper(@out, @in); //mapper might not be present already, this can be because the mapper needs to be loaded
+            if (mapper == null && In.GetCustomAttribute<MapIndex>()?.CustomParser != null)
+            {
+                //we know that there is a parser present here. Lets envoke it
+                _generateMapper.RegisterParser(In.GetCustomAttribute<MapIndex>()!.CustomParser!);
+                mapper = _generateMapper.GetMapper(@in, @out) ?? _generateMapper.GetMapper(@out, @in);
+            }
+
+            if (mapper == null && In.GetCustomAttribute<MapIndex>() != null && CanMapOneToOne(@in, @out) == false && CanMapNullableOneToOne(@in, @out) == false)
+            {
+                //this should be a mapper, let try we know this and include it
+                _generateMapper.IncludeMapper(@in, @out);
+                mapper = _generateMapper.GetMapper(@in, @out) ?? _generateMapper.GetMapper(@out, @in);
+            }
+
+            return mapper;
+        }
+
+        private ExpressionStatementSyntax GenerateNullableAssignmentWithValue(Type a, Type b)
+        {
+            var mapper = IncludeInnerMapperIfNeeded(a, b);
+            if (mapper == null)
+            {
+                throw new Exception("Mapper could not be included");
+            }
             return ExpressionStatement(
                 AssignmentExpression(
                     SyntaxKind.SimpleAssignmentExpression,
                     MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
                         IdentifierName("m"),
-                        IdentifierName(field.Name)),
+                        IdentifierName(Out.Name)),
                     ConditionalExpression(
                         BinaryExpression(
                             SyntaxKind.NotEqualsExpression,
                             MemberAccessExpression(
                                 SyntaxKind.SimpleMemberAccessExpression,
                                 IdentifierName("obj"),
-                                IdentifierName(field.Name)),
+                                IdentifierName(In.Name)),
                             LiteralExpression(
                                 SyntaxKind.NullLiteralExpression)),
                         InvocationExpression(
                                 MemberAccessExpression(
                                     SyntaxKind.SimpleMemberAccessExpression,
-                                    IdentifierName(_generateMapper.GetMapper(A, B).Name),
+                                    IdentifierName(mapper.Name),
                                     IdentifierName("Map")))
                             .WithArgumentList(
                                 ArgumentList(
@@ -193,7 +265,7 @@ namespace RoboMapper.Roslyn
                                                 MemberAccessExpression(
                                                     SyntaxKind.SimpleMemberAccessExpression,
                                                     IdentifierName("obj"),
-                                                    IdentifierName(field.Name)),
+                                                    IdentifierName(Out.Name)),
                                                 IdentifierName("Value")))))),
                         LiteralExpression(
                             SyntaxKind.NullLiteralExpression)))
@@ -208,12 +280,12 @@ namespace RoboMapper.Roslyn
                     MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
                         IdentifierName("m"),
-                        IdentifierName(B.Name)
+                        IdentifierName(Out.Name)
                     ),
                     MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
                         IdentifierName("obj"),
-                        IdentifierName(A.Name)
+                        IdentifierName(In.Name)
                     )
                 )
             );

@@ -8,7 +8,7 @@ namespace RoboMapper
     public class MapIndex: Attribute
     {
         public string IndexName { get; }
-        public Type CustomParser { get; }
+        public Type? CustomParser { get; }
 
         public MapIndex(string indexName)
         {

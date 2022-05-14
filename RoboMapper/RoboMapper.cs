@@ -3,38 +3,36 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using Microsoft.Extensions.Logging;
 using RoboMapper.Roslyn;
 
 namespace RoboMapper
 {
     public static class RoboMapper
     {
+        public static ILogger Logger = null!;
+
         private static readonly Dictionary<Type, object> Mappers = new Dictionary<Type, object>();
 
-        static RoboMapper()
+        public static void Init(ILogger logger)
         {
+            Logger = logger;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
             var dictionary = FindMappables(assemblies);
-            
+
             FindParsers(assemblies);
 
-            var tasks = GenerateIMappers(dictionary);
+            var nameSpace = new Namespace();
+            var classes = dictionary.Values.Select(e => new GenerateIMapper(nameSpace, e[0], e[1])).ToList();
+            nameSpace.Classes = classes;
 
-            var nameSpace = new Namespace
-            {
-                Classes = dictionary.Values.Select(e => new GenerateIMapper(e[0], e[1])).ToList()
-            };
+            var generated = nameSpace.Generate().NormalizeWhitespace().ToFullString();
 
-            var generated = nameSpace.Generate().ToFullString();
-            
-            var fullString = string.Join("", tasks.Select(e => e.Result.Item1));
-
-            var compilation = CreateAssemblyFromString(fullString, assemblies, tasks.SelectMany(e => e.Result.Item2).ToList());
+            var compilation = CreateAssemblyFromString(generated, assemblies);
 
             TryLoadAssemblyToMappers(compilation);
         }
@@ -54,6 +52,8 @@ namespace RoboMapper
                 {
                     Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
                 }
+
+                throw new Exception("RoboMapper is not able to compile classes");
             }
             else
             {
@@ -61,21 +61,21 @@ namespace RoboMapper
             }
         }
 
-        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies, List<Type> types)
+        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies)
         {
             var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
-            
+
             var list = new List<PortableExecutableReference>();
             foreach (var assembly in assemblies.Where(e => e.IsDynamic == false && string.IsNullOrWhiteSpace(e.Location) == false))
             {
                 list.Add(MetadataReference.CreateFromFile(assembly.Location));
             }
 
-            foreach (var type in types)
-            {
-                list.Add(MetadataReference.CreateFromFile(type.Assembly.Location));
-            }
-            
+            // foreach (var type in types)
+            // {
+            //     list.Add(MetadataReference.CreateFromFile(type.Assembly.Location));
+            // }
+
             var compilation = CSharpCompilation.Create("mapper_generator")
                 .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
                 .AddReferences(list)
@@ -83,19 +83,6 @@ namespace RoboMapper
             return compilation;
         }
 
-        private static List<Task<(string, List<Type>)>> GenerateIMappers(Dictionary<string, List<Type>> dictionary)
-        {
-            var tasks = new List<Task<(string, List<Type>)>>();
-
-            foreach (var entry in dictionary)
-            {
-                tasks.Add(new CreateClass().Generate(entry.Value[0], entry.Value[1]));
-                tasks.Add(new CreateClass().Generate(entry.Value[1], entry.Value[0]));
-            }
-
-            Task.WhenAll(tasks).GetAwaiter().GetResult(); //block until all is done
-            return tasks;
-        }
 
         private static Dictionary<string, List<Type>> FindMappables(Assembly[] assemblies)
         {
@@ -108,21 +95,24 @@ namespace RoboMapper
                 foreach (var @type in mps)
                 {
                     var mappables = @type.GetCustomAttribute<Mappable>();
-                    foreach (var mappable in mappables.UniqueName)
+                    if (mappables != null)
                     {
-                        if (!dictionary.ContainsKey(mappable))
+                        foreach (var mappable in mappables.UniqueName)
                         {
-                            dictionary.Add(mappable, new List<Type>());
-                        }
+                            if (!dictionary.ContainsKey(mappable))
+                            {
+                                dictionary.Add(mappable, new List<Type>());
+                            }
 
-                        dictionary[mappable].Add(@type);
+                            dictionary[mappable].Add(@type);
+                        }
                     }
                 }
             }
 
             return dictionary;
         }
-        
+
         private static void FindParsers(Assembly[] assemblies)
         {
             foreach (var assembly in assemblies)
@@ -131,7 +121,7 @@ namespace RoboMapper
 
                 foreach (var @type in mps)
                 {
-                    Mappers.TryAdd(type.GetInterfaces().Where(e => e.Name.Contains("IMapper")).FirstOrDefault(), Activator.CreateInstance(type));
+                    Mappers.TryAdd(type.GetInterfaces().First(e => e.Name.Contains("IMapper")), Activator.CreateInstance(type)!);
                 }
             }
         }
@@ -167,30 +157,24 @@ namespace RoboMapper
 
                     if (hasFullArgsSet)
                     {
-                        Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray()));
+                        Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray())!);
                     }
                 }
                 else
                 {
-                    Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type));
+                    Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type)!);
                 }
             }
         }
 
-        public static void Init(){}
-        
         public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
         {
             if (Mappers.TryGetValue(typeof(IMapper<TFrom, TTo>), out var mapper))
             {
-                return mapper as IMapper<TFrom, TTo>;
+                return (mapper as IMapper<TFrom, TTo>)!;
             }
-            throw new Exception("cannot create mapper since objects are not linked with Mappable");
-        }
 
-        public static void RegisterFieldMapping<TIn, TOut>(IMapper<TIn, TOut> inToOut)
-        {
-            
+            throw new Exception("cannot create mapper since objects are not linked with Mappable");
         }
     }
 }

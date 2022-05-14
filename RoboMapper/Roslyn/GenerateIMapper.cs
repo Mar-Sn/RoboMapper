@@ -2,56 +2,69 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.Extensions.Logging;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace RoboMapper.Roslyn
 {
     public class GenerateIMapper
     {
+        public readonly Namespace Namespace;
         public string Name { get; }
         public Type A { get; }
         public Type B { get; }
 
         public MapperInterface MapperInterface { get; }
 
-        public List<Field> Fields { get; }
+        public Fields Fields { get; } = new Fields();
 
-        public Contructor Contructor { get; }
+        public Contructor Contructor { get; private set; }
 
         public List<MapMethod> Methods { get; } = new List<MapMethod>();
 
-        public GenerateIMapper(Type a, Type b)
+        public GenerateIMapper(Namespace @namespace, Type a, Type b)
         {
+            Namespace = @namespace;
             Name = "Mapped" + Guid.NewGuid().ToString().Replace("-", "");
             A = a;
             B = b;
-
-            var innerMappers = GetInnerMappers(a, b);
-
-            var fields = innerMappers.Select(e => new Field
-            {
-                A = e.Item1,
-                B = e.Item2
-            }).ToList();
-
-            Fields = fields;
             MapperInterface = new MapperInterface
             {
                 A = A,
                 B = B
             };
-            Contructor = new Contructor(Name, fields);
+        }
 
+        public ClassDeclarationSyntax Generate()
+        {
+            Contructor = new Contructor(Name, Fields);
+
+            SetMethodData();
+
+            var clazz = ClassDeclaration(Name);
+            clazz = clazz.AddBaseListTypes(MapperInterface.Generate());
+            clazz = clazz.AddModifiers(Token(SyntaxKind.PublicKeyword));
+            var members = new List<MemberDeclarationSyntax>();
+            members.AddRange(Methods.Select(e => e.Generate()));
+            members.Add( Contructor.Generate());
+            members.AddRange(Fields.Values.Select(e => e.Generate()));
+            members.Reverse();
+            
+            clazz = clazz.AddMembers(members.ToArray());
+            return clazz;
+        }
+
+        private void SetMethodData()
+        {
             var aMemberInfos =
-                a.GetMembers()
+                A.GetMembers()
                     .Where(e => e is PropertyInfo && !e.GetCustomAttributes<MapIgnore>().Any())
                     .ToDictionary(e => e.GetCustomAttribute<MapIndex>()!.IndexName, e => e);
 
             var bMemberInfos =
-                b.GetMembers()
+                B.GetMembers()
                     .Where(e => e is PropertyInfo && !e.GetCustomAttributes<MapIgnore>().Any())
                     .ToDictionary(e => e.GetCustomAttribute<MapIndex>()!.IndexName, e => e);
 
@@ -73,27 +86,13 @@ namespace RoboMapper.Roslyn
             }
             catch (Exception e)
             {
-                Console.WriteLine(e);
+                RoboMapper.Logger.LogError("Could not generate single sets", e);
                 throw;
             }
 
-            Methods.Add(new MapMethod(b, a, aSets));
+            Methods.Add(new MapMethod(B, A, aSets));
 
-            Methods.Add(new MapMethod(a, b, bSets));
-        }
-
-        public ClassDeclarationSyntax Generate()
-        {
-            var clazz = ClassDeclaration(Name);
-            clazz = clazz.AddBaseListTypes(MapperInterface.Generate());
-            clazz = clazz.AddModifiers(Token(SyntaxKind.PublicKeyword));
-            var members = new List<MemberDeclarationSyntax>();
-            members.AddRange(Fields.Select(e => e.Generate()));
-            members.Add(Contructor.Generate());
-            members.AddRange(Methods.Select(e => e.Generate()));
-            
-            clazz = clazz.AddMembers(members.ToArray());
-            return clazz;
+            Methods.Add(new MapMethod(A, B, bSets));
         }
 
 
@@ -112,7 +111,7 @@ namespace RoboMapper.Roslyn
                 }
 
 
-                if (CreateClass.CanMapOneToOne(propertyInfo.PropertyType) == false)
+                if (RoboHelper.CanMapOneToOne(propertyInfo.PropertyType) == false)
                 {
                     //this is not a primitive
                     try
@@ -136,12 +135,13 @@ namespace RoboMapper.Roslyn
                         // }
                         // else
                         // {
+                        RoboMapper.Logger.LogInformation("Field {propertyInfo.PropertyType.FullName} cannot be mapped one-to-one", propertyInfo.PropertyType.FullName);
                         var fieldOut = _out.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>()?.IndexName == mapIndex.First().IndexName) as PropertyInfo;
 
                         var propertyInfoIn = propertyInfo.PropertyType;
                         var propertyInfoOut = fieldOut!.PropertyType;
 
-                        if (CreateClass.IsNullable(propertyInfoIn))
+                        if (RoboHelper.IsNullable(propertyInfoIn))
                         {
                             var genericArg = propertyInfoIn.GetGenericArguments().FirstOrDefault();
                             if (genericArg != null)
@@ -150,7 +150,7 @@ namespace RoboMapper.Roslyn
                             }
                         }
 
-                        if (CreateClass.IsNullable(propertyInfoOut))
+                        if (RoboHelper.IsNullable(propertyInfoOut))
                         {
                             var genericArg = propertyInfoOut.GetGenericArguments().FirstOrDefault();
                             if (genericArg != null)
@@ -183,14 +183,55 @@ namespace RoboMapper.Roslyn
             return list.DistinctBy(e => e.Item1.FullName).DistinctBy(e => e.Item2.FullName).ToList();
         }
 
-        public Field GetMapper(MemberInfo a, MemberInfo b)
+        public Field? GetMapper(Type? a, Type? b)
         {
-            return Fields.Single(e => e.A == a.DeclaringType && e.B == b.DeclaringType);
+            if (a != null && b != null)
+            {
+                return Fields.TryGet(a, b);
+            }
+
+            return null;
         }
 
-        public override string ToString()
+        public override string ToString() => Name;
+
+        public void RegisterParser(Type customParser)
         {
-            return Generate().NormalizeWhitespace().ToFullString();
+            //TODO improve way to handle this
+            var mapper = customParser.GetInterfaces().FirstOrDefault(e => e.FullName?.Contains("IMapper") ?? false);
+            if (mapper != null)
+            {
+                var genericArguments = mapper.GetGenericArguments();
+                RoboMapper.Logger.LogDebug("Adding new Field to {Name} args: {genericArguments[0]}, {genericArguments[1]}", Name, genericArguments[0], genericArguments[1]);
+                if (GetMapper(genericArguments[0], genericArguments[1]) == null)
+                {
+                    Fields.TryAdd(
+                        new Field(genericArguments[0], genericArguments[1]) //at this point we just assume its correct and load it
+                    );
+                }
+
+                Contructor = new Contructor(Name, Fields); //simply recreate based on fields
+            }
+            else
+            {
+                throw new Exception("registered parser is not of type IMapper");
+            }
+        }
+
+        public void IncludeMapper(Type a, Type b)
+        {
+            var mapper = Namespace.Classes.SingleOrDefault(e => e.A == a && e.B == b);
+            if (mapper == null)
+            {
+                mapper = Namespace.Classes.SingleOrDefault(e => e.A == b && e.B == a);
+            }
+
+            if (mapper != null)
+            {
+                Fields.TryAdd(
+                    new Field(mapper.A, mapper.B) //at this point we just assume its correct and load it
+                );
+            }
         }
     }
 }

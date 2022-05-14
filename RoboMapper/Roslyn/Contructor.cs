@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -11,9 +10,9 @@ namespace RoboMapper.Roslyn
     public class Contructor
     {
         private readonly string _className;
-        private readonly List<Field> _innerMappers;
+        private readonly Fields _innerMappers;
 
-        public Contructor(string className, List<Field> innerMappers)
+        public Contructor(string className, Fields innerMappers)
         {
             _className = className;
             _innerMappers = innerMappers;
@@ -21,7 +20,7 @@ namespace RoboMapper.Roslyn
 
         public ConstructorDeclarationSyntax Generate()
         {
-            var assignments = _innerMappers.Select(e => ExpressionStatement(
+            var assignments = _innerMappers.Values.Select(e => ExpressionStatement(
                 AssignmentExpression(
                     SyntaxKind.SimpleAssignmentExpression,
                     IdentifierName(e.Name),
@@ -35,11 +34,11 @@ namespace RoboMapper.Roslyn
                         Token(SyntaxKind.PublicKeyword)))
                 .WithParameterList(
                     ParameterList(
-                        SeparatedList(_innerMappers.Select(e =>
+                        SeparatedList(_innerMappers.Data.Select(e =>
                         {
                             return
                                 Parameter(
-                                        Identifier(e.Name.Replace("_", "")))
+                                        Identifier(e.Key.Replace("_", "")))
                                     .WithType(
                                         GenericName(
                                                 Identifier("IMapper"))
@@ -48,9 +47,9 @@ namespace RoboMapper.Roslyn
                                                     SeparatedList<TypeSyntax>(
                                                         new SyntaxNodeOrToken[]
                                                         {
-                                                            IdentifierName(e.A.FullName!),
+                                                            IdentifierName(e.Value.A.FullName!),
                                                             Token(SyntaxKind.CommaToken),
-                                                            IdentifierName(e.B.FullName!)
+                                                            IdentifierName(e.Value.B.FullName!)
                                                         }))));
                         }).ToArray())))
                 .WithBody(
