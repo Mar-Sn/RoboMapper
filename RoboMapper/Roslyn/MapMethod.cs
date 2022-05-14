@@ -58,6 +58,8 @@ namespace RoboMapper.Roslyn
             };
 
             localList.AddRange(SingleSets.Select(e => e.Generate()));
+            localList.Add(ReturnStatement(
+                IdentifierName("m")));
 
             return MethodDeclaration(
                     IdentifierName(ReturnType.FullName!),
