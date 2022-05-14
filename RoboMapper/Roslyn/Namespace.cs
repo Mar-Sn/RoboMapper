@@ -11,20 +11,19 @@ namespace RoboMapper.Roslyn
         private const string Name = "RoboMapper";
         public List<GenerateIMapper> Classes { get; set; } = new List<GenerateIMapper>();
 
-        public HashSet<Type> AllKnownTypes = new HashSet<Type>();
+        public HashSet<string?> AllKnownTypes = new HashSet<string?>();
         private List<Using> Usings { get; } = new List<Using>();
 
         public NamespaceDeclarationSyntax Generate()
         {
             var namespaceDeclarationSyntax = NamespaceDeclaration(ParseName(Name));
             var classes = Classes.Select(e => e.Generate());
+            namespaceDeclarationSyntax = namespaceDeclarationSyntax.AddMembers(classes.ToArray());
             foreach (var allKnownType in AllKnownTypes)
             {
-                Usings.Add(new Using(allKnownType.FullName));
+                if (allKnownType != null) Usings.Add(new Using(allKnownType));
             }
             namespaceDeclarationSyntax = namespaceDeclarationSyntax.AddUsings(Usings.Select(e => e.Generate()).ToArray());
-            namespaceDeclarationSyntax = namespaceDeclarationSyntax.AddMembers(classes.ToArray());
-
             return namespaceDeclarationSyntax;
         }
 

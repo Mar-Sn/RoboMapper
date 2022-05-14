@@ -29,8 +29,8 @@ namespace RoboMapper.Roslyn
         public StatementSyntax Generate()
         {
             var types = GetBaseTypeIfNullable();
-            _generateMapper.Namespace.AllKnownTypes.Add(types.Item1);
-            _generateMapper.Namespace.AllKnownTypes.Add(types.Item2);
+            _generateMapper.Namespace.AllKnownTypes.Add(types.Item1.Namespace);
+            _generateMapper.Namespace.AllKnownTypes.Add(types.Item2.Namespace);
             var canMapOneToOne = CanMapOneToOne();
             var canMapNullableOneToOne = CanMapNullableOneToOne(In, Out);
             if (canMapOneToOne || canMapNullableOneToOne)
