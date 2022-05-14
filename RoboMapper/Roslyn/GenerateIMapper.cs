@@ -80,7 +80,7 @@ namespace RoboMapper.Roslyn
 
                 bSets =
                     bMemberInfos
-                        .Select(e => (e.Value, bMemberInfos[e.Key]))
+                        .Select(e => (e.Value, aMemberInfos[e.Key]))
                         .Select(e => new SingleSet(this, e.Value, e.Item2))
                         .ToList();
             }
