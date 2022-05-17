@@ -174,5 +174,10 @@ namespace RoboMapper
 
             throw new Exception("cannot create mapper since objects are not linked with Mappable");
         }
+
+        public static IEnumerable<(Type, object)> GetMappers()
+        {
+            return Mappers.Select(e => (e.Key, e.Value));
+        }
     }
 }
