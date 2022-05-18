@@ -11,7 +11,7 @@ namespace RoboMapper.Roslyn
         public Type A { get; set; }
         public Type B { get; set; }
 
-        public string Name => RoboHelper.Sanitize($"_mapper{A.FullName}to{B.FullName}");
+        public readonly string Name = "_field" + RoboHelper.Sanitize(Guid.NewGuid().ToString());
 
         public Field(Type a, Type b)
         {
@@ -30,9 +30,9 @@ namespace RoboMapper.Roslyn
                                     SeparatedList<TypeSyntax>(
                                         new SyntaxNodeOrToken[]
                                         {
-                                            IdentifierName(A.FullName!),
+                                            IdentifierName(A.FullTypedName()),
                                             Token(SyntaxKind.CommaToken),
-                                            IdentifierName(B.FullName!)
+                                            IdentifierName(B.FullTypedName())           
                                         }))))
                     .WithVariables(
                         SingletonSeparatedList(

@@ -94,7 +94,7 @@ namespace RoboMapper.Roslyn
             var mapper = IncludeInnerMapperIfNeeded(args.Item1, args.Item2);
             if (mapper == null)
             {
-                throw new Exception("Mapper could not be included");
+                throw new Exception($"Mapper could not be included of type IMapper<{args.Item1},{args.Item2} for fields {In.Name} <-> {Out.Name}");
             }
 
             return ExpressionStatement(
@@ -131,13 +131,13 @@ namespace RoboMapper.Roslyn
         private (Type, Type) GetBaseTypeIfNullable()
         {
             var inArguments = PropertyInfoIn.PropertyType.GetGenericArguments();
-            if (inArguments.Length == 0)
+            if (inArguments.Length == 0 || IsNullable() == false)
             {
                 inArguments = new[] { PropertyInfoIn.PropertyType };
             }
 
             var outArguments = PropertyInfoOut.PropertyType.GetGenericArguments();
-            if (outArguments.Length == 0)
+            if (outArguments.Length == 0 || IsNullable() == false)
             {
                 outArguments = new[] { PropertyInfoOut.PropertyType };
             }

@@ -19,6 +19,7 @@ namespace RoboMapper
             return str
                 .Replace(" ", "")
                 .Replace("`", "")
+                .Replace("-", "")
                 .Replace(".", "");
         }
 

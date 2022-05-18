@@ -47,9 +47,9 @@ namespace RoboMapper.Roslyn
                                                     SeparatedList<TypeSyntax>(
                                                         new SyntaxNodeOrToken[]
                                                         {
-                                                            IdentifierName(e.Value.A.FullName!),
+                                                            IdentifierName(e.Value.A.FullTypedName()),
                                                             Token(SyntaxKind.CommaToken),
-                                                            IdentifierName(e.Value.B.FullName!)
+                                                            IdentifierName(e.Value.B.FullTypedName())
                                                         }))));
                         }).ToArray())))
                 .WithBody(
