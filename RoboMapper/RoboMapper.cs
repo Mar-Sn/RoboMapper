@@ -27,7 +27,15 @@ namespace RoboMapper
             FindParsers(assemblies);
 
             var nameSpace = new Namespace();
-            var classes = dictionary.Values.Select(e => new GenerateIMapper(nameSpace, e[0], e[1])).ToList();
+            var classes = dictionary.Values.Select(e =>
+            {
+                if (e.Count >= 2)
+                {
+                    return new GenerateIMapper(nameSpace, e[0], e[1]);
+                }
+
+                throw new Exception($"Unable to find mapper counterpart, where should I map to? {e[0].FullName}");
+            }).ToList();
             nameSpace.Classes = classes;
 
             var generated = nameSpace.Generate().NormalizeWhitespace().ToFullString();
