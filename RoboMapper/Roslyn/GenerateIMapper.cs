@@ -48,10 +48,10 @@ namespace RoboMapper.Roslyn
             clazz = clazz.AddModifiers(Token(SyntaxKind.PublicKeyword));
             var members = new List<MemberDeclarationSyntax>();
             members.AddRange(Methods.Select(e => e.Generate()));
-            members.Add( Contructor.Generate());
+            members.Add(Contructor.Generate());
             members.AddRange(Fields.Values.Select(e => e.Generate()));
             members.Reverse();
-            
+
             clazz = clazz.AddMembers(members.ToArray());
             return clazz;
         }
@@ -66,7 +66,16 @@ namespace RoboMapper.Roslyn
             var bMemberInfos =
                 B.GetMembers()
                     .Where(e => e is PropertyInfo && !e.GetCustomAttributes<MapIgnore>().Any())
-                    .ToDictionary(e => e.GetCustomAttribute<MapIndex>()!.IndexName, e => e);
+                    .ToDictionary(e =>
+                    {
+                        var customAttribute = e.GetCustomAttribute<MapIndex>();
+                        if (customAttribute != null)
+                        {
+                            return customAttribute.IndexName;
+                        }
+
+                        throw new Exception($"unable find corresponding field for {e.Name}");
+                    }, e => e);
 
             List<SingleSet> aSets;
             List<SingleSet> bSets;
@@ -74,13 +83,31 @@ namespace RoboMapper.Roslyn
             {
                 aSets =
                     aMemberInfos
-                        .Select(e => (e.Value, bMemberInfos[e.Key]))
+                        .Where(e => e.Value.GetCustomAttribute<MapIndex>().Optional == false || bMemberInfos.ContainsKey(e.Key))
+                        .Select(e =>
+                        {
+                            if(bMemberInfos.TryGetValue(e.Key, out var value))
+                            {
+                                return (e.Value, value);
+                            }
+
+                            throw new Exception($"unable to find counterpart of {e.Key}");
+                        })
                         .Select(e => new SingleSet(this, e.Value, e.Item2))
                         .ToList();
 
                 bSets =
                     bMemberInfos
-                        .Select(e => (e.Value, aMemberInfos[e.Key]))
+                        .Where(e => e.Value.GetCustomAttribute<MapIndex>().Optional == false || aMemberInfos.ContainsKey(e.Key))
+                        .Select(e =>
+                        {
+                            if(aMemberInfos.TryGetValue(e.Key, out var value))
+                            {
+                                return (e.Value, value);
+                            }
+
+                            throw new Exception($"unable to find counterpart of {e.Key}");
+                        })
                         .Select(e => new SingleSet(this, e.Value, e.Item2))
                         .ToList();
             }
