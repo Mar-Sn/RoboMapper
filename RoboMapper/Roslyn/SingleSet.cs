@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
@@ -18,7 +19,7 @@ namespace RoboMapper.Roslyn
         public MemberInfo Out { get; }
 
         private PropertyInfo PropertyInfoOut => (Out as PropertyInfo)!;
-        
+
         public SingleSet(GenerateIMapper generateMapper, MemberInfo @in, MemberInfo @out)
         {
             _generateMapper = generateMapper;
@@ -39,6 +40,12 @@ namespace RoboMapper.Roslyn
                 return SimpleOneToOne();
             }
 
+            if (IsIEnumerable())
+            {
+                RoboMapper.Logger.LogDebug("Class: {_generateMapper.Name} Field is type of IEnumerable {A.Name} to {B.Name}", _generateMapper.Name, In.Name, Out.Name);
+                return EnumableWithMapper();
+            }
+            
             var isNullable = IsNullable();
             var fieldHasCustomerParser = FieldHasCustomerParser();
             if (isNullable && fieldHasCustomerParser)
@@ -50,14 +57,14 @@ namespace RoboMapper.Roslyn
 
             return WithMapper();
         }
-        
+
         private bool FieldHasCustomerParser()
         {
             var customParserA = PropertyInfoIn.GetCustomAttribute<MapIndex>()?.CustomParser != null;
             var customParserB = PropertyInfoOut.GetCustomAttribute<MapIndex>()?.CustomParser != null;
             return customParserA || customParserB;
         }
-        
+
         private bool IsNullable()
         {
             var aIsNullable = PropertyInfoIn.PropertyType.IsGenericType && PropertyInfoIn.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>);
@@ -65,17 +72,31 @@ namespace RoboMapper.Roslyn
             return aIsNullable || bIsNullable;
         }
 
-        private bool CanMapNullableOneToOne(MemberInfo memberInfo, MemberInfo memberInfo1)
+        private bool IsIEnumerable()
         {
-            return RoboHelper.IsNullable(memberInfo.DeclaringType!) 
-                   && RoboHelper.IsNullable(memberInfo1.DeclaringType!) 
-                   && CanMapOneToOne();
+            var aIsIEnumerable = PropertyInfoIn.PropertyType.IsGenericType && PropertyInfoIn.PropertyType.GetInterfaces().Any(e => e.FullName == "System.Collections.IEnumerable");
+            var bIsIEnumerable = PropertyInfoOut.PropertyType.IsGenericType && PropertyInfoOut.PropertyType.GetInterfaces().Any(e => e.FullName == "System.Collections.IEnumerable");
+            return aIsIEnumerable && bIsIEnumerable;
         }
         
+        private bool IsIList()
+        {
+            var aIsIEnumerable = PropertyInfoIn.PropertyType.IsGenericType && PropertyInfoIn.PropertyType.GetInterfaces().Any(e => e.FullName == "System.Collections.IList");
+            var bIsIEnumerable = PropertyInfoOut.PropertyType.IsGenericType && PropertyInfoOut.PropertyType.GetInterfaces().Any(e => e.FullName == "System.Collections.IList");
+            return aIsIEnumerable && bIsIEnumerable;
+        }
+        
+        private bool CanMapNullableOneToOne(MemberInfo memberInfo, MemberInfo memberInfo1)
+        {
+            return RoboHelper.IsNullable(memberInfo.DeclaringType!)
+                   && RoboHelper.IsNullable(memberInfo1.DeclaringType!)
+                   && CanMapOneToOne();
+        }
+
         private bool CanMapNullableOneToOne(Type a, Type b)
         {
-            return RoboHelper.IsNullable(a) 
-                   && RoboHelper.IsNullable(b) 
+            return RoboHelper.IsNullable(a)
+                   && RoboHelper.IsNullable(b)
                    && CanMapOneToOne();
         }
 
@@ -83,6 +104,7 @@ namespace RoboMapper.Roslyn
         {
             return PropertyInfoIn.PropertyType == PropertyInfoOut.PropertyType;
         }
+
         private bool CanMapOneToOne(Type a, Type b)
         {
             return a == b;
@@ -126,6 +148,23 @@ namespace RoboMapper.Roslyn
                             )
                         )
                 ));
+        }
+
+        private StatementSyntax EnumableWithMapper()
+        {
+            var args = (PropertyInfoIn.PropertyType.GetGenericArguments().First(), PropertyInfoOut.PropertyType.GetGenericArguments().First());
+            var mapper = IncludeInnerMapperIfNeeded(args.Item1, args.Item2);
+            if (mapper == null)
+            {
+                throw new Exception($"Mapper could not be included of type IMapper<{args.Item1},{args.Item2} for fields {In.Name} <-> {Out.Name}");
+            }
+
+            if (IsIList())
+            {
+                return SingleSetRoslynBuilder.ListWithImapper(Out.Name, In.Name, mapper.Name);
+            }
+            
+            return SingleSetRoslynBuilder.EnumerableWithIMapper(Out.Name, In.Name, mapper.Name);
         }
 
         private (Type, Type) GetBaseTypeIfNullable()
@@ -174,6 +213,7 @@ namespace RoboMapper.Roslyn
             {
                 throw new Exception("Mapper could not be included");
             }
+
             return ExpressionStatement(
                 AssignmentExpression(
                     SyntaxKind.SimpleAssignmentExpression,
@@ -235,6 +275,7 @@ namespace RoboMapper.Roslyn
             {
                 throw new Exception("Mapper could not be included");
             }
+
             return ExpressionStatement(
                 AssignmentExpression(
                     SyntaxKind.SimpleAssignmentExpression,

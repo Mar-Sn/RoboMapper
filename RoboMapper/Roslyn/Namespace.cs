@@ -28,5 +28,10 @@ namespace RoboMapper.Roslyn
         }
 
         public override string ToString() => Name;
+
+        public void AddUsing(string name)
+        {
+            Usings.Add(new Using(name));
+        }
     }
 }

@@ -27,6 +27,7 @@ namespace RoboMapper
             FindParsers(assemblies);
 
             var nameSpace = new Namespace();
+            nameSpace.AddUsing("System.Linq");
             var classes = dictionary.Values.Select(e =>
             {
                 if (e.Count >= 2)

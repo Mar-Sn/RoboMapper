@@ -83,7 +83,7 @@ namespace RoboMapper.Roslyn
             {
                 aSets =
                     aMemberInfos
-                        .Where(e => e.Value.GetCustomAttribute<MapIndex>().Optional == false || bMemberInfos.ContainsKey(e.Key))
+                        .Where(e => bMemberInfos.ContainsKey(e.Key))
                         .Select(e =>
                         {
                             if(bMemberInfos.TryGetValue(e.Key, out var value))
@@ -98,7 +98,7 @@ namespace RoboMapper.Roslyn
 
                 bSets =
                     bMemberInfos
-                        .Where(e => e.Value.GetCustomAttribute<MapIndex>().Optional == false || aMemberInfos.ContainsKey(e.Key))
+                        .Where(e => aMemberInfos.ContainsKey(e.Key))
                         .Select(e =>
                         {
                             if(aMemberInfos.TryGetValue(e.Key, out var value))
