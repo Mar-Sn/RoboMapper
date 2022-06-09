@@ -171,6 +171,7 @@ namespace RoboMapper
                     Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type)!);
                 }
             }
+            Logger.LogInformation("loaded all assemblies");
         }
 
         public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
