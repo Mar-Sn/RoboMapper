@@ -116,7 +116,7 @@ namespace RoboMapper.Roslyn
             var mapper = IncludeInnerMapperIfNeeded(args.Item1, args.Item2);
             if (mapper == null)
             {
-                throw new Exception($"Mapper could not be included of type IMapper<{args.Item1},{args.Item2} for fields {In.Name} <-> {Out.Name}");
+                throw new Exception($"IMapper<{_generateMapper.A},{_generateMapper.B}> Or parser for Fields {In.Name} <-> {Out.Name} cannot be found");
             }
 
             return ExpressionStatement(
@@ -260,9 +260,19 @@ namespace RoboMapper.Roslyn
 
             if (mapper == null && In.GetCustomAttribute<MapIndex>() != null && CanMapOneToOne(@in, @out) == false && CanMapNullableOneToOne(@in, @out) == false)
             {
-                //this should be a mapper, let try we know this and include it
-                _generateMapper.IncludeMapper(@in, @out);
-                mapper = _generateMapper.GetMapper(@in, @out) ?? _generateMapper.GetMapper(@out, @in);
+                //this should be a mapper, lets assume we know this and include it
+                var known = RoboMapper.GetMapper(@in, @out) != null;
+                
+                if (known)
+                {
+                    _generateMapper.IncludeMapper(@in, @out);
+                    mapper = _generateMapper.GetMapper(@in, @out);
+                }
+                else
+                {
+                    _generateMapper.IncludeMapper(@out, @in);
+                    mapper = _generateMapper.GetMapper(@out, @in);
+                }
             }
 
             return mapper;

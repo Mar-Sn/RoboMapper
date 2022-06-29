@@ -15,6 +15,7 @@ namespace RoboMapper
     {
         public static ILogger Logger = null!;
 
+
         private static readonly Dictionary<Type, object> Mappers = new Dictionary<Type, object>();
 
         public static void Init(ILogger logger)
@@ -22,13 +23,13 @@ namespace RoboMapper
             Logger = logger;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
-            var dictionary = FindMappables(assemblies);
+            var mappables = FindMappables(assemblies);
 
             FindParsers(assemblies);
 
             var nameSpace = new Namespace();
             nameSpace.AddUsing("System.Linq");
-            var classes = dictionary.Values.Select(e =>
+            var classes = mappables.Values.Select(e =>
             {
                 if (e.Count >= 2)
                 {
@@ -37,6 +38,16 @@ namespace RoboMapper
 
                 throw new Exception($"Unable to find mapper counterpart, where should I map to? {e[0].FullName}");
             }).ToList();
+            classes.AddRange(mappables.Values.Select(e =>
+            {
+                if (e.Count >= 2)
+                {
+                    return new GenerateIMapper(nameSpace, e[1], e[0]);
+                }
+
+                throw new Exception($"Unable to find mapper counterpart, where should I map to? {e[0].FullName}");
+            }));
+            
             nameSpace.Classes = classes;
 
             var generated = nameSpace.Generate().NormalizeWhitespace().ToFullString();
@@ -44,6 +55,20 @@ namespace RoboMapper
             var compilation = CreateAssemblyFromString(generated, assemblies, nameSpace.AllKnownTypes);
 
             TryLoadAssemblyToMappers(compilation);
+        }
+
+        public static void Define<T1, T2>()
+        {
+            //placeholder for now  
+        }
+        public static void Define<T1>()
+        {
+            //placeholder for now  
+        }
+
+        public static void Define<T1, T2, T3>()
+        {
+            //placeholder for now  
         }
 
         private static void TryLoadAssemblyToMappers(CSharpCompilation compilation)
@@ -172,6 +197,7 @@ namespace RoboMapper
                     Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type)!);
                 }
             }
+
             Logger.LogInformation("loaded all assemblies");
         }
 
@@ -183,6 +209,20 @@ namespace RoboMapper
             }
 
             throw new Exception("cannot create mapper since objects are not linked with Mappable");
+        }
+
+        public static object? GetMapper(Type @in, Type @out)
+        {
+            foreach (var mapper in Mappers)
+            {
+                var args = mapper.Key.GetGenericArguments();
+                if (args[0] == @in && args[1] == @out)
+                {
+                    return mapper.Value;
+                }
+            }
+
+            return null;
         }
 
         public static IEnumerable<(Type, object)> GetMappers()

@@ -123,93 +123,6 @@ namespace RoboMapper.Roslyn
         }
 
 
-        private List<(Type, Type)> GetInnerMappers(Type @out, Type @in)
-        {
-            void InnerForeach(Type _in, Type _out, MemberInfo field, List<(Type, Type)> valueTuples)
-            {
-                if (field.GetCustomAttributes<MapIgnore>().Any()) return;
-                var mapIndex = field.GetCustomAttributes<MapIndex>().ToList();
-                if (!mapIndex.Any()) throw new Exception($"field {field.Name} of class {_in.FullName} has no index!");
-
-                var propertyInfo = field as PropertyInfo;
-                if (mapIndex == null || propertyInfo == null)
-                {
-                    throw new Exception("fields should have mapIndex present if class is defined Mappable");
-                }
-
-
-                if (RoboHelper.CanMapOneToOne(propertyInfo.PropertyType) == false)
-                {
-                    //this is not a primitive
-                    try
-                    {
-                        // if (IsNullable())
-                        // {
-                        //     //just a simple check to see if the type is of Imapper
-                        //     // var parserType = mapIndex.First().CustomParser;
-                        //     // var interfaces = parserType.GetInterfaces();
-                        //     // if (interfaces.Any(e => e.FullName.StartsWith("RoboMapper.IMapper")))
-                        //     // {
-                        //     //     //TODO is there a better way to check?
-                        //     //     //just load the in and out of the parser. No checking required as its enforced by interface
-                        //     //     var types = interfaces.First(e => e.FullName.StartsWith("RoboMapper.IMapper")).GenericTypeArguments;
-                        //     //     list.Add((types[0], types[1]));
-                        //     // }
-                        //     // else
-                        //     // {
-                        //     //     throw new ArgumentException("a parser can only be of type IMapper");
-                        //     // }
-                        // }
-                        // else
-                        // {
-                        RoboMapper.Logger.LogInformation("Field {propertyInfo.PropertyType.FullName} cannot be mapped one-to-one", propertyInfo.PropertyType.FullName);
-                        var fieldOut = _out.GetMembers().Where(e => e is PropertyInfo).First(e => e.GetCustomAttribute<MapIndex>()?.IndexName == mapIndex.First().IndexName) as PropertyInfo;
-
-                        var propertyInfoIn = propertyInfo.PropertyType;
-                        var propertyInfoOut = fieldOut!.PropertyType;
-
-                        if (RoboHelper.IsNullable(propertyInfoIn))
-                        {
-                            var genericArg = propertyInfoIn.GetGenericArguments().FirstOrDefault();
-                            if (genericArg != null)
-                            {
-                                propertyInfoIn = genericArg;
-                            }
-                        }
-
-                        if (RoboHelper.IsNullable(propertyInfoOut))
-                        {
-                            var genericArg = propertyInfoOut.GetGenericArguments().FirstOrDefault();
-                            if (genericArg != null)
-                            {
-                                propertyInfoOut = genericArg;
-                            }
-                        }
-
-                        valueTuples.Add((propertyInfoIn, propertyInfoOut)!);
-                        //}
-                    }
-                    catch (Exception e)
-                    {
-                        throw new Exception($"Unable to map {mapIndex.First().IndexName} of object {_out.FullName} <-> {_in.FullName}", e);
-                    }
-                }
-            }
-
-            var list = new List<(Type, Type)>();
-            foreach (var field in @out.GetMembers().Where(e => e is PropertyInfo))
-            {
-                InnerForeach(@out, @in, field, list);
-            }
-
-            foreach (var field in @in.GetMembers().Where(e => e is PropertyInfo))
-            {
-                InnerForeach(@in, @out, field, list);
-            }
-
-            return list.DistinctBy(e => e.Item1.FullName).DistinctBy(e => e.Item2.FullName).ToList();
-        }
-
         public Field? GetMapper(Type? a, Type? b)
         {
             if (a != null && b != null)
@@ -222,10 +135,15 @@ namespace RoboMapper.Roslyn
 
         public override string ToString() => Name;
 
-        public void RegisterParser(Type customParser)
+        public void RegisterParser(string customParser)
         {
             //TODO improve way to handle this
-            var mapper = customParser.GetInterfaces().FirstOrDefault(e => e.FullName?.Contains("IMapper") ?? false);
+            var instance = RoboMapper.GetMappers().Select(e => e.Item2).FirstOrDefault(e => e.GetType().GetCustomAttribute<MapParser>()?.Name == customParser);
+            if (instance == null)
+            {
+                throw new Exception("registered parser is not of type IMapper");
+            }
+            var mapper = instance.GetType().GetInterfaces().FirstOrDefault(e => e.FullName?.Contains("IMapper") ?? false);
             if (mapper != null)
             {
                 var genericArguments = mapper.GetGenericArguments();
