@@ -1,11 +1,11 @@
 ﻿using RoboMapper;
 
-namespace Test
+namespace Shared
 {
     [Mappable("D-E")]
-    public class D
+    public class E
     {
         [MapIndex("A")]
-        public A A { get; set; }
+        public B B1 { get; set; }
     }
 }

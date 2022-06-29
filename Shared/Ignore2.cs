@@ -1,6 +1,6 @@
 ﻿using RoboMapper;
 
-namespace Test;
+namespace Shared;
 
 [Mappable("IgnoreTest")]
 public class Ignore2

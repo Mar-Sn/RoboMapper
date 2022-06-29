@@ -1,6 +1,6 @@
 ﻿using RoboMapper;
 
-namespace Test
+namespace Shared
 {
     [Mappable("A-B", "B-C")]
     public class B

@@ -14,12 +14,20 @@ namespace RoboMapper
     public static class RoboMapper
     {
         public static ILogger Logger = null!;
-
-
+        
         private static readonly Dictionary<Type, object> Mappers = new Dictionary<Type, object>();
 
+        private static bool _initLock = false;
         public static void Init(ILogger logger)
         {
+            if (!_initLock)
+            {
+                _initLock = true;
+            }
+            else
+            {
+                return;
+            }
             Logger = logger;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
