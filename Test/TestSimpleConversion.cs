@@ -4,14 +4,14 @@ using Shared;
 
 namespace Test
 {
-    public class Tests
+    public class TestSimpleConversion
     {
         [OneTimeSetUp]
         public void Setup()
         {
             var logger = new LoggerFactory();
             RoboMapper.RoboMapper.Define<A>();
-            RoboMapper.RoboMapper.Init(logger.CreateLogger(nameof(Tests)));
+            RoboMapper.RoboMapper.Init(logger.CreateLogger(nameof(TestSimpleConversion)));
         }
 
 
