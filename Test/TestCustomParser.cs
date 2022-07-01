@@ -48,4 +48,21 @@ public class TestCustomParser
 
         Assert.AreEqual("True", b.NotMappedB.CanMapThis);
     }
+    
+    [Test]
+    public void TestNull()
+    {
+        var mapper = RoboMapper.RoboMapper.GetMapper<MappedB, MappedA>();
+
+        var b = mapper.Map(
+            new MappedA
+            {
+                NotMappedA = new NotMappedA
+                {
+                    CanMapThis = null
+                }
+            });
+
+        Assert.AreEqual(null, b.NotMappedB.CanMapThis);
+    }
 }

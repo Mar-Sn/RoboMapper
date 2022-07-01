@@ -7,7 +7,7 @@ public class NotMappedParser: IMapper<NotMappedA, NotMappedB>
 {
     public NotMappedB Map(NotMappedA from) => new ()
     {
-        CanMapThis = from.CanMapThis.ToString()
+        CanMapThis = from.CanMapThis?.ToString()
     };
     
     public NotMappedA Map(NotMappedB to)
