@@ -25,6 +25,17 @@ namespace RoboMapper.Roslyn
         {
             var localList = new List<StatementSyntax>
             {
+                IfStatement(
+                    BinaryExpression(
+                        SyntaxKind.EqualsExpression,
+                        IdentifierName("obj"),
+                        LiteralExpression(
+                            SyntaxKind.NullLiteralExpression)),
+                    Block(
+                        SingletonList<StatementSyntax>(
+                            ReturnStatement(
+                                LiteralExpression(
+                                    SyntaxKind.NullLiteralExpression))))),
                 LocalDeclarationStatement(
                     VariableDeclaration(
                             IdentifierName(
