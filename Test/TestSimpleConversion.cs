@@ -1,22 +1,26 @@
+using Microsoft.Extensions.Logging;
 using NUnit.Framework;
+using Shared;
 
 namespace Test
 {
-    public class Tests
+    public class TestSimpleConversion
     {
-        [SetUp]
+        [OneTimeSetUp]
         public void Setup()
         {
-         
+            var logger = new LoggerFactory();
+            RoboMapper.RoboMapper.Define<A>();
+            RoboMapper.RoboMapper.Init(logger.CreateLogger(nameof(TestSimpleConversion)));
         }
-        
-        
+
+
         [Test]
         public void FromAToB()
         {
             var mapper = RoboMapper.RoboMapper.GetMapper<A, B>();
 
-            var b = mapper.Map(new A {Id1 = 7698});
+            var b = mapper.Map(new A { Id1 = 7698 });
 
             Assert.AreEqual(7698, b.Id2);
         }
@@ -25,7 +29,7 @@ namespace Test
         [Test]
         public void FromBToA()
         {
-            var mapper = RoboMapper.RoboMapper.GetMapper<A, B>();
+            var mapper = RoboMapper.RoboMapper.GetMapper<B, A>();
 
             var a = mapper.Map(new B { Id2 = 7698 });
 
@@ -82,7 +86,7 @@ namespace Test
             {
                 Test1 = "test1"
             });
-            
+
             Assert.AreEqual("test1", test.Test1);
             Assert.AreEqual(null, test.Test2);
         }

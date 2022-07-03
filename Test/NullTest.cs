@@ -1,0 +1,28 @@
+﻿using Microsoft.Extensions.Logging;
+using NUnit.Framework;
+using Shared;
+using Shared.CustomParser;
+
+namespace Test;
+
+public class NullTest
+{
+    [OneTimeSetUp]
+    public void Setup()
+    {
+        var logger = new LoggerFactory();
+        RoboMapper.RoboMapper.Define<A>();
+        RoboMapper.RoboMapper.Init(logger.CreateLogger(nameof(TestSimpleConversion)));
+    }
+    
+    [Test]
+    public void TestNullSupplied()
+    {
+        var mapper = RoboMapper.RoboMapper.GetMapper<A, B>();
+
+        var b = mapper.Map((B)null);
+
+        Assert.AreEqual(null, b);
+    }
+
+}

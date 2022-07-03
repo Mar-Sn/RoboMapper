@@ -3,66 +3,119 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using Microsoft.Extensions.Logging;
+using RoboMapper.Roslyn;
 
 namespace RoboMapper
 {
     public static class RoboMapper
     {
+        public static ILogger Logger = null!;
+        
         private static readonly Dictionary<Type, object> Mappers = new Dictionary<Type, object>();
 
-        static RoboMapper()
+        private static bool _initLock = false;
+        public static void Init(ILogger logger)
         {
+            if (!_initLock)
+            {
+                _initLock = true;
+            }
+            else
+            {
+                return;
+            }
+            Logger = logger;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
-            var dictionary = FindMappables(assemblies);
+            var mappables = FindMappables(assemblies);
 
-            var tasks = GenerateIMappers(dictionary);
+            FindParsers(assemblies);
 
-            var fullString = string.Join("", tasks.Select(e => e.Result));
+            var nameSpace = new Namespace();
+            nameSpace.AddUsing("System.Linq");
+            var classes = mappables.Values.Select(e =>
+            {
+                if (e.Count >= 2)
+                {
+                    return new GenerateIMapper(nameSpace, e[0], e[1]);
+                }
 
-            var compilation = CreateAssemblyFromString(fullString, assemblies);
+                throw new Exception($"Unable to find mapper counterpart, where should I map to? {e[0].FullName}");
+            }).ToList();
+            classes.AddRange(mappables.Values.Select(e =>
+            {
+                if (e.Count >= 2)
+                {
+                    return new GenerateIMapper(nameSpace, e[1], e[0]);
+                }
+
+                throw new Exception($"Unable to find mapper counterpart, where should I map to? {e[0].FullName}");
+            }));
+            
+            nameSpace.Classes = classes;
+
+            var generated = nameSpace.Generate().NormalizeWhitespace().ToFullString();
+
+            var compilation = CreateAssemblyFromString(generated, assemblies, nameSpace.AllKnownTypes);
 
             TryLoadAssemblyToMappers(compilation);
         }
 
-        private static void TryLoadAssemblyToMappers(CSharpCompilation compilation)
+        public static void Define<T1, T2>()
         {
-            using (var ms = new MemoryStream())
-            {
-                var result = compilation.Emit(ms);
-
-                if (!result.Success)
-                {
-                    var failures = result.Diagnostics.Where(diagnostic =>
-                        diagnostic.IsWarningAsError ||
-                        diagnostic.Severity == DiagnosticSeverity.Error);
-
-                    foreach (var diagnostic in failures)
-                    {
-                        Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
-                    }
-                }
-                else
-                {
-                    LoadGeneratedAssembly(ms);
-                }
-            }
+            //placeholder for now  
+        }
+        public static void Define<T1>()
+        {
+            //placeholder for now  
         }
 
-        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies)
+        public static void Define<T1, T2, T3>()
+        {
+            //placeholder for now  
+        }
+
+        private static void TryLoadAssemblyToMappers(CSharpCompilation compilation)
+        {
+            using var ms = new MemoryStream();
+            var result = compilation.Emit(ms);
+
+            if (!result.Success)
+            {
+                var failures = result.Diagnostics.Where(diagnostic =>
+                    diagnostic.IsWarningAsError ||
+                    diagnostic.Severity == DiagnosticSeverity.Error);
+
+                foreach (var diagnostic in failures)
+                {
+                    Logger.LogError("{diagnostic.Id}: {diagnostic.GetMessage()}", diagnostic.Id, diagnostic.GetMessage());
+                }
+
+                throw new Exception("RoboMapper is not able to compile classes");
+            }
+
+            LoadGeneratedAssembly(ms);
+        }
+
+        private static CSharpCompilation CreateAssemblyFromString(string fullString, IEnumerable<Assembly> assemblies, IEnumerable<Type> usings)
         {
             var syntaxTree = SyntaxFactory.ParseSyntaxTree(SourceText.From(fullString));
-            
+
             var list = new List<PortableExecutableReference>();
             foreach (var assembly in assemblies.Where(e => e.IsDynamic == false && string.IsNullOrWhiteSpace(e.Location) == false))
             {
                 list.Add(MetadataReference.CreateFromFile(assembly.Location));
             }
-            
+
+            foreach (var type in usings)
+            {
+                list.Add(MetadataReference.CreateFromFile(type.Assembly.Location));
+            }
+
             var compilation = CSharpCompilation.Create("mapper_generator")
                 .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
                 .AddReferences(list)
@@ -70,19 +123,6 @@ namespace RoboMapper
             return compilation;
         }
 
-        private static List<Task<string>> GenerateIMappers(Dictionary<string, List<Type>> dictionary)
-        {
-            var tasks = new List<Task<string>>();
-
-            foreach (var entry in dictionary)
-            {
-                tasks.Add(new CreateClass().Generate(entry.Value[0], entry.Value[1]));
-                tasks.Add(new CreateClass().Generate(entry.Value[1], entry.Value[0]));
-            }
-
-            Task.WhenAll(tasks).GetAwaiter().GetResult(); //block until all is done
-            return tasks;
-        }
 
         private static Dictionary<string, List<Type>> FindMappables(Assembly[] assemblies)
         {
@@ -95,19 +135,35 @@ namespace RoboMapper
                 foreach (var @type in mps)
                 {
                     var mappables = @type.GetCustomAttribute<Mappable>();
-                    foreach (var mappable in mappables.UniqueName)
+                    if (mappables != null)
                     {
-                        if (!dictionary.ContainsKey(mappable))
+                        foreach (var mappable in mappables.UniqueName)
                         {
-                            dictionary.Add(mappable, new List<Type>());
-                        }
+                            if (!dictionary.ContainsKey(mappable))
+                            {
+                                dictionary.Add(mappable, new List<Type>());
+                            }
 
-                        dictionary[mappable].Add(@type);
+                            dictionary[mappable].Add(@type);
+                        }
                     }
                 }
             }
 
             return dictionary;
+        }
+
+        private static void FindParsers(Assembly[] assemblies)
+        {
+            foreach (var assembly in assemblies)
+            {
+                var mps = assembly.GetTypes().Where(e => e.GetCustomAttribute<MapParser>() != null);
+
+                foreach (var @type in mps)
+                {
+                    Mappers.TryAdd(type.GetInterfaces().First(e => e.Name.Contains("IMapper")), Activator.CreateInstance(type)!);
+                }
+            }
         }
 
         private static void LoadGeneratedAssembly(MemoryStream ms)
@@ -141,23 +197,45 @@ namespace RoboMapper
 
                     if (hasFullArgsSet)
                     {
-                        Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray()));
+                        Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray())!);
                     }
                 }
                 else
                 {
-                    Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type));
+                    Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type)!);
                 }
             }
+
+            Logger.LogInformation("loaded all assemblies");
         }
 
         public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
         {
             if (Mappers.TryGetValue(typeof(IMapper<TFrom, TTo>), out var mapper))
             {
-                return mapper as IMapper<TFrom, TTo>;
+                return (mapper as IMapper<TFrom, TTo>)!;
             }
+
             throw new Exception("cannot create mapper since objects are not linked with Mappable");
+        }
+
+        public static object? GetMapper(Type @in, Type @out)
+        {
+            foreach (var mapper in Mappers)
+            {
+                var args = mapper.Key.GetGenericArguments();
+                if (args[0] == @in && args[1] == @out)
+                {
+                    return mapper.Value;
+                }
+            }
+
+            return null;
+        }
+
+        public static IEnumerable<(Type, object)> GetMappers()
+        {
+            return Mappers.Select(e => (e.Key, e.Value));
         }
     }
 }

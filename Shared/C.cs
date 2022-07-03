@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using RoboMapper;
+﻿using RoboMapper;
 
-namespace Test
+namespace Shared
 {
     [Mappable("B-C")]
     public class C
