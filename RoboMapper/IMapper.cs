@@ -1,13 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System.Diagnostics;
 
 namespace RoboMapper
 {
     public interface IMapper<TFrom, TTo>
     {
-        TTo Map(TFrom from);
+        public TTo Map(TFrom from);
 
-        TFrom Map(TTo to);
+        public TFrom Map(TTo to);
     }
+    
 }

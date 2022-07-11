@@ -254,7 +254,7 @@ namespace RoboMapper.Roslyn
             if (mapper == null && In.GetCustomAttribute<MapIndex>()?.CustomParser != null)
             {
                 //we know that there is a parser present here. Lets envoke it
-                _generateMapper.RegisterParser(In.GetCustomAttribute<MapIndex>()!.CustomParser!);
+                _generateMapper.IncludeParserToFieldsAndConstructor(@in, @out);
                 mapper = _generateMapper.GetMapper(@in, @out) ?? _generateMapper.GetMapper(@out, @in);
             }
 

@@ -2,15 +2,14 @@
 
 namespace Shared.CustomParser;
 
-[MapParser("NotMapped")]
-public class NotMappedParser: IMapper<NotMappedA, NotMappedB>
+public class NotMappedParser: MapParser<NotMappedA, NotMappedB>
 {
-    public NotMappedB Map(NotMappedA from) => new ()
+    public override NotMappedB Map(NotMappedA from) => new ()
     {
         CanMapThis = from.CanMapThis?.ToString()
     };
     
-    public NotMappedA Map(NotMappedB to)
+    public override NotMappedA Map(NotMappedB to)
     {
         if (bool.TryParse(to.CanMapThis, out var parsed))
         {

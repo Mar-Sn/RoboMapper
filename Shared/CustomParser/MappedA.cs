@@ -2,7 +2,6 @@
 
 namespace Shared.CustomParser;
 
-[Mappable("MappedA-MappedB")]
 public class MappedA
 {
     [MapIndex("customParser", "NotMapped")]

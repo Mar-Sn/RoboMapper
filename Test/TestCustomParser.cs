@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using NUnit.Framework;
-using Shared;
 using Shared.CustomParser;
 
 namespace Test;
@@ -10,9 +9,7 @@ public class TestCustomParser
     [OneTimeSetUp]
     public void Setup()
     {
-        var logger = new LoggerFactory();
-        RoboMapper.RoboMapper.Define<A>();
-        RoboMapper.RoboMapper.Init(logger.CreateLogger(nameof(TestSimpleConversion)));
+        SetupMapper.Instance.Init();
     }
     
     [Test]

@@ -9,7 +9,7 @@ namespace RoboMapper.Roslyn
     public class Namespace
     {
         private const string Name = "RoboMapper";
-        public List<GenerateIMapper> Classes { get; set; } = new List<GenerateIMapper>();
+        public List<IGenerateMapper> Classes { get; set; } = new List<IGenerateMapper>();
 
         public HashSet<Type> AllKnownTypes = new HashSet<Type>();
         private List<Using> Usings { get; } = new List<Using>();

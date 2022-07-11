@@ -14,10 +14,15 @@ namespace RoboMapper
     public static class RoboMapper
     {
         public static ILogger Logger = null!;
-        
-        private static readonly Dictionary<Type, object> Mappers = new Dictionary<Type, object>();
 
-        private static bool _initLock = false;
+        private static readonly Dictionary<string, object> Mappers = new Dictionary<string, object>();
+        private static readonly Dictionary<Type, (object, Type, Type)> Parsers = new Dictionary<Type, (object, Type, Type)>();
+
+        private static bool _initLock;
+        private static readonly Namespace NameSpace = new Namespace();
+        private static readonly List<IGenerateMapper> Classes = new List<IGenerateMapper>();
+        private static string? _generated;
+
         public static void Init(ILogger logger)
         {
             if (!_initLock)
@@ -28,56 +33,87 @@ namespace RoboMapper
             {
                 return;
             }
+
             Logger = logger;
+            NameSpace.AddUsing("System.Linq");
+            NameSpace.Classes = Classes;
+        }
+
+        public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
+        {
+            if (Mappers.TryGetValue(typeof(IMapper<TFrom, TTo>).FullTypedName(), out var mapper))
+            {
+                return (mapper as IMapper<TFrom, TTo>)!;
+            }
+
+            throw new Exception("cannot create mapper since objects are not linked with Mappable");
+        }
+
+        public static object? GetMapper(Type @in, Type @out)
+        {
+            foreach (var mapper in Mappers)
+            {
+                var args = mapper.Value.GetType().GetInterfaces().First().GetGenericArguments();
+                if (args[0] == @in && args[1] == @out)
+                {
+                    return mapper.Value;
+                }
+            }
+
+            return null;
+        }
+
+        public static IEnumerable<(Type, object)> GetMappers()
+        {
+            return Mappers.Select(e => (e.Value.GetType(), e.Value));
+        }
+
+        public static void Bind<T1, T2>()
+        {
+            Classes.Add(new GenerateIMapper(NameSpace, typeof(T1), typeof(T2)));
+            Classes.Add(new GenerateIMapper(NameSpace, typeof(T2), typeof(T1)));
+        }
+
+        public static void Bind<T1, T2>(Action<DeclareMapParser> parsers) where T1 : class where T2 : class
+        {
+            var declareMapParser = new DeclareMapParser();
+            parsers(declareMapParser);
+            var p = declareMapParser.Parsers;
+            foreach (var parser in p)
+            {
+                var instance = Activator.CreateInstance(parser.Item1);
+                var field1Instance = Activator.CreateInstance(typeof(T1)) as T1;
+                var field2Instance = Activator.CreateInstance(typeof(T2)) as T2;
+                if (field1Instance == null)
+                {
+                    throw new Exception($"{typeof(T1).FullTypedName()} could not be instantiated, it requires an empty construct");
+                }
+                if (field2Instance == null)
+                {
+                    throw new Exception($"{typeof(T2).FullTypedName()} could not be instantiated, it requires an empty construct");
+                }
+
+                var field1Type = (field1Instance.GetType().GetMembers().Where(e => e.MemberType == MemberTypes.Property).First(e => e.Name == parser.Item2) as PropertyInfo)?.PropertyType;
+                var field2Type = (field2Instance.GetType().GetMembers().Where(e => e.MemberType == MemberTypes.Property).First(e => e.Name == parser.Item3) as PropertyInfo)?.PropertyType;
+
+                Parsers.Add(parser.Item1, (instance, field1Type, field2Type)!);
+                Mappers.Add($"RoboMapper.IMapper<{field1Type},{field2Type}>", instance);
+                Mappers.Add($"RoboMapper.IMapper<{field2Type},{field1Type}>", instance);
+            }
+
+            Classes.Add(new GenerateIMapper(NameSpace, typeof(T1), typeof(T2)));
+            Classes.Add(new GenerateIMapper(NameSpace, typeof(T2), typeof(T1)));
+        }
+
+        public static void LoadAssembly()
+        {
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-
-            var mappables = FindMappables(assemblies);
-
-            FindParsers(assemblies);
-
-            var nameSpace = new Namespace();
-            nameSpace.AddUsing("System.Linq");
-            var classes = mappables.Values.Select(e =>
-            {
-                if (e.Count >= 2)
-                {
-                    return new GenerateIMapper(nameSpace, e[0], e[1]);
-                }
-
-                throw new Exception($"Unable to find mapper counterpart, where should I map to? {e[0].FullName}");
-            }).ToList();
-            classes.AddRange(mappables.Values.Select(e =>
-            {
-                if (e.Count >= 2)
-                {
-                    return new GenerateIMapper(nameSpace, e[1], e[0]);
-                }
-
-                throw new Exception($"Unable to find mapper counterpart, where should I map to? {e[0].FullName}");
-            }));
-            
-            nameSpace.Classes = classes;
-
-            var generated = nameSpace.Generate().NormalizeWhitespace().ToFullString();
-
-            var compilation = CreateAssemblyFromString(generated, assemblies, nameSpace.AllKnownTypes);
+            _generated = NameSpace.Generate().NormalizeWhitespace().ToFullString();
+            var compilation = CreateAssemblyFromString(_generated, assemblies, NameSpace.AllKnownTypes);
 
             TryLoadAssemblyToMappers(compilation);
         }
 
-        public static void Define<T1, T2>()
-        {
-            //placeholder for now  
-        }
-        public static void Define<T1>()
-        {
-            //placeholder for now  
-        }
-
-        public static void Define<T1, T2, T3>()
-        {
-            //placeholder for now  
-        }
 
         private static void TryLoadAssemblyToMappers(CSharpCompilation compilation)
         {
@@ -123,49 +159,6 @@ namespace RoboMapper
             return compilation;
         }
 
-
-        private static Dictionary<string, List<Type>> FindMappables(Assembly[] assemblies)
-        {
-            var dictionary = new Dictionary<string, List<Type>>();
-
-            foreach (var assembly in assemblies)
-            {
-                var mps = assembly.GetTypes().Where(e => e.GetCustomAttribute<Mappable>() != null);
-
-                foreach (var @type in mps)
-                {
-                    var mappables = @type.GetCustomAttribute<Mappable>();
-                    if (mappables != null)
-                    {
-                        foreach (var mappable in mappables.UniqueName)
-                        {
-                            if (!dictionary.ContainsKey(mappable))
-                            {
-                                dictionary.Add(mappable, new List<Type>());
-                            }
-
-                            dictionary[mappable].Add(@type);
-                        }
-                    }
-                }
-            }
-
-            return dictionary;
-        }
-
-        private static void FindParsers(Assembly[] assemblies)
-        {
-            foreach (var assembly in assemblies)
-            {
-                var mps = assembly.GetTypes().Where(e => e.GetCustomAttribute<MapParser>() != null);
-
-                foreach (var @type in mps)
-                {
-                    Mappers.TryAdd(type.GetInterfaces().First(e => e.Name.Contains("IMapper")), Activator.CreateInstance(type)!);
-                }
-            }
-        }
-
         private static void LoadGeneratedAssembly(MemoryStream ms)
         {
             ms.Seek(0, SeekOrigin.Begin);
@@ -183,7 +176,7 @@ namespace RoboMapper
                     var hasFullArgsSet = true;
                     foreach (var arg in constructorArgs)
                     {
-                        if (Mappers.TryGetValue(arg.ParameterType, out var mapper))
+                        if (Mappers.TryGetValue(arg.ParameterType.FullTypedName(), out var mapper))
                         {
                             injectedArgs.Add(mapper);
                         }
@@ -197,45 +190,38 @@ namespace RoboMapper
 
                     if (hasFullArgsSet)
                     {
-                        Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type, args: injectedArgs.ToArray())!);
+                        var @interface = type.GetInterfaces().First();
+                        var genArgs = @interface.GetGenericArguments();
+                        Mappers.Add($"RoboMapper.IMapper<{genArgs[0]},{genArgs[1]}>", Activator.CreateInstance(type, args: injectedArgs.ToArray())!);
                     }
                 }
                 else
                 {
-                    Mappers.Add(type.GetInterfaces()[0], Activator.CreateInstance(type)!);
+                    var @interface = type.GetInterfaces().First();
+                    var genArgs = @interface.GetGenericArguments();
+                    Mappers.Add($"RoboMapper.IMapper<{genArgs[0]},{genArgs[1]}>", Activator.CreateInstance(type)!);
                 }
             }
 
             Logger.LogInformation("loaded all assemblies");
         }
 
-        public static IMapper<TFrom, TTo> GetMapper<TFrom, TTo>()
+        public static object GetParser(Type type, Type type1)
         {
-            if (Mappers.TryGetValue(typeof(IMapper<TFrom, TTo>), out var mapper))
-            {
-                return (mapper as IMapper<TFrom, TTo>)!;
-            }
-
-            throw new Exception("cannot create mapper since objects are not linked with Mappable");
+            return Parsers.First(
+                e =>
+                    e.Value.Item2 == type && e.Value.Item3 == type1 ||
+                    e.Value.Item3 == type && e.Value.Item2 == type1).Value.Item1;
         }
+    }
 
-        public static object? GetMapper(Type @in, Type @out)
+    public class DeclareMapParser
+    {
+        public readonly List<(Type, string, string)> Parsers = new List<(Type, string, string)>();
+
+        public void MapWith<TParser>(string field1, string field2)
         {
-            foreach (var mapper in Mappers)
-            {
-                var args = mapper.Key.GetGenericArguments();
-                if (args[0] == @in && args[1] == @out)
-                {
-                    return mapper.Value;
-                }
-            }
-
-            return null;
-        }
-
-        public static IEnumerable<(Type, object)> GetMappers()
-        {
-            return Mappers.Select(e => (e.Key, e.Value));
+            Parsers.Add((typeof(TParser), field1, field2));
         }
     }
 }

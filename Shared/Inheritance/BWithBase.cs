@@ -1,8 +1,7 @@
 ﻿using RoboMapper;
 
-namespace Shared.Inherentance;
+namespace Shared.Inheritance;
 
-[Mappable("AWithBase-BWithBase")]
 public class BWithBase: BaseB
 {
     [MapIndex("Field1")]

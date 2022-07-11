@@ -1,4 +1,5 @@
 ﻿using RoboMapper;
+using Shared.Inheritance;
 
 namespace Shared.Inherentance;
 

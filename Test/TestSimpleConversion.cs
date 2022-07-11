@@ -9,11 +9,8 @@ namespace Test
         [OneTimeSetUp]
         public void Setup()
         {
-            var logger = new LoggerFactory();
-            RoboMapper.RoboMapper.Define<A>();
-            RoboMapper.RoboMapper.Init(logger.CreateLogger(nameof(TestSimpleConversion)));
+            SetupMapper.Instance.Init();
         }
-
 
         [Test]
         public void FromAToB()

@@ -9,7 +9,7 @@ using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace RoboMapper.Roslyn
 {
-    public class GenerateIMapper
+    public class GenerateIMapper: IGenerateMapper
     {
         public readonly Namespace Namespace;
         public string Name { get; }
@@ -135,15 +135,15 @@ namespace RoboMapper.Roslyn
 
         public override string ToString() => Name;
 
-        public void RegisterParser(string customParser)
+        public void IncludeParserToFieldsAndConstructor(Type a, Type b)
         {
             //TODO improve way to handle this
-            var instance = RoboMapper.GetMappers().Select(e => e.Item2).FirstOrDefault(e => e.GetType().GetCustomAttribute<MapParser>()?.Name == customParser);
-            if (instance == null)
+            var parser = RoboMapper.GetParser(a, b);
+            if (parser == null)
             {
                 throw new Exception("registered parser is not of type IMapper");
             }
-            var mapper = instance.GetType().GetInterfaces().FirstOrDefault(e => e.FullName?.Contains("IMapper") ?? false);
+            var mapper = parser.GetType().GetInterfaces().FirstOrDefault(e => e.FullName?.Contains("IMapper") ?? false);
             if (mapper != null)
             {
                 var genericArguments = mapper.GetGenericArguments();

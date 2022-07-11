@@ -2,7 +2,6 @@
 
 namespace Shared
 {
-    [Mappable("A-B", "B-C")]
     public class B
     {
         [MapIndex("Id")]

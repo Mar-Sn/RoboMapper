@@ -1,6 +1,6 @@
 ﻿using RoboMapper;
 
-namespace Shared.Inherentance;
+namespace Shared.Inheritance;
 
 public class BaseA
 {

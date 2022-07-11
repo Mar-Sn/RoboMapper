@@ -1,15 +1,10 @@
-﻿using System;
-
+﻿
 namespace RoboMapper
 {
-    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
-    public class MapParser : Attribute
+    public abstract class MapParser<TIn, TOut> : IMapper<TIn, TOut>
     {
-        public string Name { get; }
+        public abstract TOut Map(TIn from);
 
-        public MapParser(string name)
-        {
-            Name = name;
-        }    
+        public abstract TIn Map(TOut to);
     }
 }

@@ -1,7 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
-using NUnit.Framework;
-using Shared;
+﻿using NUnit.Framework;
 using Shared.Inherentance;
+using Shared.Inheritance;
 
 namespace Test;
 
@@ -10,9 +9,7 @@ public class TestWithBaseClass
     [OneTimeSetUp]
     public void Setup()
     {
-        var logger = new LoggerFactory();
-        RoboMapper.RoboMapper.Define<A>();
-        RoboMapper.RoboMapper.Init(logger.CreateLogger(nameof(TestSimpleConversion)));
+        SetupMapper.Instance.Init();
     }
 
     [Test]

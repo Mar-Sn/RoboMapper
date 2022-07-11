@@ -2,7 +2,6 @@
 
 namespace Shared;
 
-[Mappable("IgnoreTest")]
 public class Ignore1
 {
     [MapIndex("Test1")]
