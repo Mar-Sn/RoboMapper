@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <LangVersion>8</LangVersion>
-    <PackageVersion>0.0.3</PackageVersion>
+    <PackageVersion>0.1.0</PackageVersion>
     <Title>RoboMapper</Title>
     <Authors>Martin Broers</Authors>
     <Description>A typesafe mapper that generates mappers into memory</Description>
@@ -16,12 +16,10 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.0" />
     <PackageReference Include="System.CodeDom" Version="6.0.0" />
-  </ItemGroup>
+  </ItemGroup>                                                                                   :wq
   
   <ItemGroup>
-    <Reference Include="Microsoft.Extensions.Logging.Abstractions">
-      <HintPath>..\..\..\..\..\..\..\..\Program Files\dotnet\shared\Microsoft.AspNetCore.App\6.0.4\Microsoft.Extensions.Logging.Abstractions.dll</HintPath>
-    </Reference>
+    <Reference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
 </Project>
