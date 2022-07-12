@@ -93,12 +93,20 @@ namespace RoboMapper
                     throw new Exception($"{typeof(T2).FullTypedName()} could not be instantiated, it requires an empty construct");
                 }
 
-                var field1Type = (field1Instance.GetType().GetMembers().Where(e => e.MemberType == MemberTypes.Property).First(e => e.Name == parser.Item2) as PropertyInfo)?.PropertyType;
-                var field2Type = (field2Instance.GetType().GetMembers().Where(e => e.MemberType == MemberTypes.Property).First(e => e.Name == parser.Item3) as PropertyInfo)?.PropertyType;
-
-                Parsers.Add(parser.Item1, (instance, field1Type, field2Type)!);
-                Mappers.Add($"RoboMapper.IMapper<{field1Type},{field2Type}>", instance);
-                Mappers.Add($"RoboMapper.IMapper<{field2Type},{field1Type}>", instance);
+                var field1Type = (field1Instance.GetType().GetMembers().Where(e => e.MemberType == MemberTypes.Property).FirstOrDefault(e => e.Name == parser.Item2) as PropertyInfo)?.PropertyType;
+                if (field1Type == null)
+                {
+                    throw new Exception($"could not find member {parser.Item2} in {typeof(T1).FullTypedName()}");
+                }
+                var field2Type = (field2Instance.GetType().GetMembers().Where(e => e.MemberType == MemberTypes.Property).FirstOrDefault(e => e.Name == parser.Item3) as PropertyInfo)?.PropertyType;
+                if (field2Type == null)
+                {
+                    throw new Exception($"could not find member {parser.Item3} in {typeof(T2).FullTypedName()}");
+                }
+                
+                Parsers.TryAdd(parser.Item1, (instance, field1Type, field2Type)!);
+                Mappers.TryAdd($"RoboMapper.IMapper<{field1Type},{field2Type}>", instance);
+                Mappers.TryAdd($"RoboMapper.IMapper<{field2Type},{field1Type}>", instance);
             }
 
             Classes.Add(new GenerateIMapper(NameSpace, typeof(T1), typeof(T2)));
